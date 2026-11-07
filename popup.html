@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FB Group Radar</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo-group">
+        <span class="radar-dot"></span>
+        <h1>FB Radar</h1>
+      </div>
+      <div class="switch-container">
+        <span id="statusText" class="status-badge off">ĐÃ TẮT</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="masterToggle">
+          <span class="slider"></span>
+        </label>
+      </div>
+    </header>
+
+    <!-- Quick Runner Tab Status Bar -->
+    <div class="runner-bar">
+      <div class="runner-info">
+        <span class="runner-dot" id="runnerDot"></span>
+        <span id="runnerStatusText">Tab Treo: Đang dừng</span>
+      </div>
+      <button type="button" id="openRunnerBtn" class="btn-runner">🚀 Mở Tab Treo</button>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <nav class="nav-tabs">
+      <button type="button" class="tab-btn active" data-tab="tab-targets">Mục tiêu</button>
+      <button type="button" class="tab-btn" data-tab="tab-timing">Hành vi</button>
+      <button type="button" class="tab-btn" data-tab="tab-alerts">Thông báo</button>
+      <button type="button" class="tab-btn" data-tab="tab-logs">Lịch sử</button>
+    </nav>
+
+    <!-- Content Sections -->
+    <main class="tab-content-wrapper">
+      <!-- TAB 1: TARGETS & KEYWORDS -->
+      <section id="tab-targets" class="tab-pane active">
+        <!-- Keywords section -->
+        <div class="card">
+          <div class="card-header">
+            <label class="section-title">Từ khóa cần theo dõi</label>
+            <span class="hint-count" id="keywordCount">0 từ khóa</span>
+          </div>
+          <div class="input-inline">
+            <input type="text" id="keywordInput" placeholder="VD: tuyển dụng, freelancer, báo giá..." />
+            <button type="button" id="addKeywordBtn" class="btn-sm">Thêm</button>
+          </div>
+          <div class="tag-container" id="keywordTags"></div>
+          <p class="field-hint">💡 Tự động bắt bài viết chứa <b>ít nhất một</b> trong các từ khóa trên (không phân biệt HOA/thường, có dấu/không dấu).</p>
+        </div>
+
+        <!-- Groups section -->
+        <div class="card">
+          <div class="card-header">
+            <label class="section-title">Danh sách Hội Nhóm (Duyệt luân phiên)</label>
+            <span class="hint-count" id="groupCount">0 nhóm</span>
+          </div>
+          <div class="input-inline">
+            <input type="url" id="groupInput" placeholder="https://facebook.com/groups/..." />
+            <button type="button" id="addGroupBtn" class="btn-sm">Thêm</button>
+          </div>
+          <div class="list-container" id="groupList"></div>
+          <p class="field-hint">💡 <b>Cơ chế 1 Tab Luân Phiên</b>: Tab treo sẽ lần lượt kiểm tra các nhóm được tích chọn [✓] rồi tự động đổi nhóm. Bạn hoàn toàn có thể làm việc ở tab khác bình thường!</p>
+        </div>
+      </section>
+
+      <!-- TAB 2: TIMING & HUMAN SIMULATION -->
+      <section id="tab-timing" class="tab-pane">
+        <div class="card">
+          <label class="section-title">Thời gian dừng ở mỗi nhóm (Stay Interval)</label>
+          <div class="form-row">
+            <label for="reloadMinutes">Thời gian cơ sở mỗi nhóm (phút):</label>
+            <input type="number" id="reloadMinutes" min="1" max="60" value="3" step="0.5" />
+          </div>
+
+          <div class="form-row">
+            <label for="jitterPercent">Biên độ ngẫu nhiên (Jitter ±%):</label>
+            <div class="range-wrap">
+              <input type="range" id="jitterPercent" min="0" max="50" value="30" step="5" />
+              <span id="jitterDisplay" class="value-badge">±30%</span>
+            </div>
+          </div>
+
+          <div class="calc-preview" id="calcPreview">
+            Thời gian ở mỗi nhóm: <b>2.1 phút ~ 3.9 phút</b> (ngẫu nhiên từng vòng).
+          </div>
+          <p class="field-hint">🛡️ Sau khi quét xong một nhóm, Extension sẽ chờ hết khoảng thời gian này rồi mới chuyển sang nhóm tiếp theo.</p>
+        </div>
+
+        <div class="card">
+          <label class="section-title">Mô phỏng lướt trang (Human Scrolling)</label>
+          <div class="form-row">
+            <label for="scrollSpeed">Tốc độ cuộn:</label>
+            <select id="scrollSpeed">
+              <option value="slow">Chậm & Tự nhiên (Khuyên dùng)</option>
+              <option value="medium" selected>Vừa phải</option>
+              <option value="fast">Nhanh</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <label for="maxScrollSteps">Số nhịp cuộn mỗi nhóm:</label>
+            <input type="number" id="maxScrollSteps" min="1" max="15" value="4" />
+          </div>
+          <p class="field-hint">⚡ Mô phỏng người đọc thật: cuộn ngắt quãng và dừng đọc bài trước khi chuyển sang nhóm tiếp theo.</p>
+        </div>
+      </section>
+
+      <!-- TAB 3: NOTIFICATIONS & TELEGRAM -->
+      <section id="tab-alerts" class="tab-pane">
+        <div class="card">
+          <label class="section-title">Chuông báo Desktop</label>
+          <div class="form-row">
+            <label for="soundEnabled">Phát âm thanh chuông khi có bài mới:</label>
+            <input type="checkbox" id="soundEnabled" checked style="width: auto;" />
+          </div>
+          <div class="form-row">
+            <label for="desktopNotify">Hiển thị thông báo góc màn hình:</label>
+            <input type="checkbox" id="desktopNotify" checked style="width: auto;" />
+          </div>
+          <p class="field-hint">🔔 Khi phát hiện bài viết, click vào thông báo desktop sẽ tự động mở thẳng bài viết đó.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <label class="section-title">Thông báo Telegram (Về điện thoại)</label>
+            <span class="hint-count">Tùy chọn</span>
+          </div>
+          <div class="form-group" style="margin-bottom: 8px;">
+            <label for="tgBotToken" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 3px;">Bot Token (từ @BotFather):</label>
+            <input type="text" id="tgBotToken" placeholder="VD: 123456789:ABCdefGHIjklMNO..." />
+          </div>
+          <div class="form-group" style="margin-bottom: 8px;">
+            <label for="tgChatId" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 3px;">Chat ID (từ @userinfobot):</label>
+            <input type="text" id="tgChatId" placeholder="VD: 987654321" />
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center; margin-top: 6px;">
+            <button type="button" id="testTelegramBtn" class="btn-sm" style="padding: 6px 12px;">Gửi thử tin nhắn</button>
+            <span id="tgTestResult" style="font-size: 11px; font-weight: 600;"></span>
+          </div>
+          <p class="field-hint" style="margin-top: 8px;">📲 Giúp bạn dù đang di chuyển ngoài đường vẫn nhận được bài viết ngay lập tức.</p>
+        </div>
+      </section>
+
+      <!-- TAB 4: LOGS & DETECTED POSTS -->
+      <section id="tab-logs" class="tab-pane">
+        <div class="card">
+          <div class="card-header">
+            <label class="section-title">Lịch sử bài viết</label>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <button type="button" id="exportExcelBtn" class="btn-sm" style="padding: 4px 10px; font-size: 11px; background: #2e7d32;">📥 Xuất Excel</button>
+              <button type="button" id="clearLogsBtn" class="btn-text">Xóa lịch sử</button>
+            </div>
+          </div>
+          <div class="logs-container" id="logsList">
+            <div class="empty-state">Chưa có bài viết nào được phát hiện.</div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer Action -->
+    <footer class="footer">
+      <div id="saveToast" class="save-toast">Đã lưu cài đặt thành công!</div>
+      <button type="button" id="saveBtn" class="btn-primary">Lưu Cài Đặt</button>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
