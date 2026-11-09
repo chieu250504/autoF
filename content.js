@@ -448,10 +448,10 @@ const RadarEngine = {
           enabled: false,
           keywords: ["tuyển dụng", "báo giá", "cần tìm"],
           groups: [],
-          reloadMinutes: 3,
+          reloadMinutes: 5,
           jitterPercent: 30,
           scrollSpeed: "medium",
-          maxScrollSteps: 4,
+          maxScrollSteps: 6,
           ...stored
         };
         resolve(this.config);

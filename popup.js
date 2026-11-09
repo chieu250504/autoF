@@ -3,10 +3,10 @@ const DEFAULT_CONFIG = {
   enabled: false,
   keywords: ["tuyển dụng", "báo giá", "cần tìm"],
   groups: [], // Array of objects: { url: string, enabled: boolean, name?: string }
-  reloadMinutes: 3, // Thời gian dừng ở mỗi nhóm (phút)
+  reloadMinutes: 5, // Thời gian dừng ở mỗi nhóm (mặc định 5 phút -> 3 nhóm = ~15p, 4 nhóm = ~20p)
   jitterPercent: 30,
   scrollSpeed: "medium",
-  maxScrollSteps: 4,
+  maxScrollSteps: 6,
   soundEnabled: true,
   desktopNotify: true,
   tgBotToken: "",
@@ -168,7 +168,16 @@ function updateTimingPreview() {
     return secs > 0 ? `${mins}p ${secs}s` : `${mins} phút`;
   };
 
-  calcPreview.innerHTML = `Thời gian ở mỗi nhóm: <b>${formatMinSec(minMin)} ~ ${formatMinSec(maxMin)}</b> (ngẫu nhiên từng vòng).`;
+  const enabledCount = (currentConfig.groups || []).filter(g => g.enabled !== false && g.url).length || 1;
+  const loopMinStr = formatMinSec(minMin * enabledCount);
+  const loopMaxStr = formatMinSec(maxMin * enabledCount);
+
+  let loopInfo = "";
+  if (enabledCount > 1) {
+    loopInfo = `<br>🔁 Vòng lặp <b>${enabledCount} nhóm</b>: mỗi nhóm được quét lại sau khoảng <b>${loopMinStr} ~ ${loopMaxStr}</b>.`;
+  }
+
+  calcPreview.innerHTML = `Thời gian dừng ở mỗi nhóm: <b>${formatMinSec(minMin)} ~ ${formatMinSec(maxMin)}</b> (ngẫu nhiên).${loopInfo}`;
 }
 
 // Keywords
