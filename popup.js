@@ -3,10 +3,10 @@ const DEFAULT_CONFIG = {
   enabled: false,
   keywords: ["tuyển dụng", "báo giá", "cần tìm"],
   groups: [], // Array of objects: { url: string, enabled: boolean, name?: string }
-  reloadMinutes: 5, // Thời gian dừng ở mỗi nhóm (mặc định 5 phút -> 3 nhóm = ~15p, 4 nhóm = ~20p)
+  reloadMinutes: 0.75, // Tạm thời để 0.75 phút (~45s, dao động 31s - 59s) để test luân phiên nhanh
   jitterPercent: 30,
   scrollSpeed: "medium",
-  maxScrollSteps: 6,
+  maxScrollSteps: 4,
   soundEnabled: true,
   desktopNotify: true,
   tgBotToken: "",
@@ -156,10 +156,10 @@ function listenToStorageChanges() {
 
 // Timing preview
 function updateTimingPreview() {
-  const baseMinutes = parseFloat(reloadMinutesInput.value) || 3;
+  const baseMinutes = parseFloat(reloadMinutesInput.value) || 0.75;
   const jitter = parseInt(jitterPercentInput.value, 10) || 0;
 
-  const minMin = Math.max(0.5, baseMinutes * (1 - jitter / 100));
+  const minMin = Math.max(0.4, baseMinutes * (1 - jitter / 100));
   const maxMin = baseMinutes * (1 + jitter / 100);
 
   const formatMinSec = (val) => {
@@ -526,7 +526,7 @@ async function loadConfig() {
       renderKeywords();
       renderGroups();
 
-      reloadMinutesInput.value = currentConfig.reloadMinutes || 3;
+      reloadMinutesInput.value = currentConfig.reloadMinutes || 0.75;
       jitterPercentInput.value = currentConfig.jitterPercent || 30;
       jitterDisplay.textContent = `±${jitterPercentInput.value}%`;
       scrollSpeedSelect.value = currentConfig.scrollSpeed || "medium";
@@ -548,7 +548,7 @@ async function loadConfig() {
 // Save config
 function saveConfig(isSilent = false) {
   currentConfig.enabled = masterToggle.checked;
-  currentConfig.reloadMinutes = Math.max(0.5, parseFloat(reloadMinutesInput.value) || 3);
+  currentConfig.reloadMinutes = Math.max(0.4, parseFloat(reloadMinutesInput.value) || 0.75);
   currentConfig.jitterPercent = parseInt(jitterPercentInput.value, 10) || 0;
   currentConfig.scrollSpeed = scrollSpeedSelect.value;
   currentConfig.maxScrollSteps = parseInt(maxScrollStepsInput.value, 10) || 4;

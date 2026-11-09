@@ -327,7 +327,7 @@ const HumanSimulator = {
   },
 
   calculateJitterMs(baseMinutes, jitterPercent) {
-    const baseMs = Math.max(0.5, baseMinutes) * 60 * 1000;
+    const baseMs = Math.max(0.4, baseMinutes) * 60 * 1000;
     const maxDeltaMs = baseMs * (Math.max(0, Math.min(50, jitterPercent)) / 100);
 
     const u1 = Math.random() || 0.0001;
@@ -336,7 +336,7 @@ const HumanSimulator = {
     normalVariance = Math.max(-1.5, Math.min(1.5, normalVariance)) / 1.5;
 
     const actualDelta = normalVariance * maxDeltaMs;
-    return Math.max(30000, Math.round(baseMs + actualDelta)); // Tối thiểu 30s
+    return Math.max(25000, Math.round(baseMs + actualDelta)); // Tối thiểu 25s cho chế độ test
   },
 
   async simulateHumanScroll({ steps = 6, speed = "medium", onStep = null }) {
@@ -448,10 +448,10 @@ const RadarEngine = {
           enabled: false,
           keywords: ["tuyển dụng", "báo giá", "cần tìm"],
           groups: [],
-          reloadMinutes: 5,
+          reloadMinutes: 0.75, // Tạm thời để 0.75 phút (~45s, dao động 31s - 59s) để test luân phiên
           jitterPercent: 30,
           scrollSpeed: "medium",
-          maxScrollSteps: 6,
+          maxScrollSteps: 4,
           ...stored
         };
         resolve(this.config);
