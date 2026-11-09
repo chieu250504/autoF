@@ -81,7 +81,7 @@ export const PostsTable: React.FC<Props> = ({
     const rows = filteredPosts.map((p, idx) => [
       idx + 1,
       p.detected_at ? new Date(p.detected_at).toLocaleString('vi-VN') : '',
-      `"${(p.group_title || '').replace(/"/g, '""')}"`,
+      `"${(p.group_title || p.group_url || 'Nhóm Facebook').replace(/"/g, '""')}"`,
       `"${(p.matched_keyword || '').replace(/"/g, '""')}"`,
       `"${(p.post_text || '').replace(/"/g, '""')}"`,
       p.post_link || '',
@@ -112,17 +112,17 @@ export const PostsTable: React.FC<Props> = ({
   };
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
+    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
       {/* Header Bar */}
-      <div className="p-5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-4">
+      <div className="p-5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-base font-bold text-slate-100">Bài Viết Quét Được (Realtime)</h2>
-            <span className="text-xs px-2 py-0.5 rounded-full font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-base font-bold text-slate-900">Bài Viết Quét Được (Realtime)</h2>
+            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
               {filteredPosts.length} / {posts.length} bài
             </span>
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">Tự động cập nhật tức thời khi Tab Treo phát hiện bài viết mới</p>
+          <p className="text-xs text-slate-500 mt-0.5">Tự động cập nhật tức thời khi Tab Treo phát hiện bài viết mới</p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -130,7 +130,7 @@ export const PostsTable: React.FC<Props> = ({
             onClick={onRefresh}
             disabled={loading}
             title="Tải lại danh sách"
-            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 transition"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -138,7 +138,7 @@ export const PostsTable: React.FC<Props> = ({
           {/* Nút Xuất Excel */}
           <button
             onClick={exportToExcel}
-            className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow-md shadow-emerald-900/20 transition active:scale-95"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm transition active:scale-95"
           >
             <FileSpreadsheet className="w-4 h-4" />
             <span>Xuất Excel (.csv)</span>
@@ -148,7 +148,7 @@ export const PostsTable: React.FC<Props> = ({
           {posts.length > 0 && (
             <button
               onClick={handleDeleteAll}
-              className="flex items-center gap-1.5 px-3 py-2 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 rounded-xl text-xs font-semibold transition active:scale-95"
+              className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-semibold transition active:scale-95"
             >
               <Trash2 className="w-4 h-4" />
               <span>Xóa Hết</span>
@@ -158,26 +158,26 @@ export const PostsTable: React.FC<Props> = ({
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="p-4 bg-slate-950/50 border-b border-slate-800 flex flex-wrap items-center gap-3">
+      <div className="p-4 bg-slate-50/70 border-b border-slate-200 flex flex-wrap items-center gap-3">
         {/* Search */}
         <div className="relative flex-1 min-w-[200px]">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Tìm theo nội dung, từ khóa, tên nhóm..."
-            className="w-full pl-9 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+            className="w-full pl-9 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
           />
         </div>
 
         {/* Filter Keyword */}
         <div className="flex items-center gap-1 text-xs">
-          <Tag className="w-3.5 h-3.5 text-slate-500" />
+          <Tag className="w-3.5 h-3.5 text-slate-400" />
           <select
             value={selectedKeyword}
             onChange={(e) => setSelectedKeyword(e.target.value)}
-            className="px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-slate-300 focus:outline-none focus:border-emerald-500"
+            className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:border-emerald-500"
           >
             <option value="all">Tất cả từ khóa</option>
             {uniqueKeywords.map((kw) => (
@@ -190,11 +190,11 @@ export const PostsTable: React.FC<Props> = ({
 
         {/* Filter Group */}
         <div className="flex items-center gap-1 text-xs">
-          <Users className="w-3.5 h-3.5 text-slate-500" />
+          <Users className="w-3.5 h-3.5 text-slate-400" />
           <select
             value={selectedGroup}
             onChange={(e) => setSelectedGroup(e.target.value)}
-            className="px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-slate-300 focus:outline-none focus:border-emerald-500 max-w-[200px]"
+            className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:border-emerald-500 max-w-[200px]"
           >
             <option value="all">Tất cả nhóm</option>
             {uniqueGroups.map((grp) => (
@@ -209,7 +209,7 @@ export const PostsTable: React.FC<Props> = ({
       {/* Table Content */}
       <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
         <table className="w-full text-left border-collapse">
-          <thead className="bg-slate-950/90 sticky top-0 z-10 text-[11px] font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-800">
+          <thead className="bg-slate-100/80 sticky top-0 z-10 text-[11px] font-bold text-slate-600 uppercase tracking-wider border-b border-slate-200">
             <tr>
               <th className="py-3 px-4 w-12 text-center">STT</th>
               <th className="py-3 px-4 w-40">Thời Gian</th>
@@ -219,10 +219,10 @@ export const PostsTable: React.FC<Props> = ({
               <th className="py-3 px-4 w-24 text-center">Thao Tác</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800/60 text-xs">
+          <tbody className="divide-y divide-slate-100 text-xs">
             {filteredPosts.length === 0 ? (
               <tr>
-                <td colSpan={6} className="py-12 text-center text-slate-500 italic">
+                <td colSpan={6} className="py-12 text-center text-slate-400 italic">
                   Chưa có bài viết nào phù hợp với bộ lọc hiện tại.
                 </td>
               </tr>
@@ -242,47 +242,47 @@ export const PostsTable: React.FC<Props> = ({
                 return (
                   <tr
                     key={post.id || idx}
-                    className="hover:bg-slate-800/40 transition group"
+                    className="hover:bg-slate-50 transition group"
                   >
-                    <td className="py-3 px-4 text-center text-slate-500 font-mono">
+                    <td className="py-3 px-4 text-center text-slate-400 font-mono">
                       {idx + 1}
                     </td>
 
-                    <td className="py-3 px-4 text-slate-400 font-mono text-[11px] whitespace-nowrap">
+                    <td className="py-3 px-4 text-slate-600 font-mono text-[11px] whitespace-nowrap">
                       <div className="flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                         <span>{formattedTime}</span>
                       </div>
                       {post.post_time && (
-                        <span className="text-[10px] text-slate-500 block pl-5">
+                        <span className="text-[10px] text-slate-400 block pl-5">
                           ({post.post_time})
                         </span>
                       )}
                     </td>
 
-                    <td className="py-3 px-4 font-medium text-slate-200">
-                      <div className="truncate max-w-[180px]" title={post.group_title}>
-                        {post.group_title || 'Chưa rõ'}
+                    <td className="py-3 px-4 font-semibold text-slate-800">
+                      <div className="truncate max-w-[180px]" title={post.group_title || post.group_url}>
+                        {post.group_title || post.group_url || 'Nhóm Facebook'}
                       </div>
                       {post.group_url && (
                         <a
                           href={post.group_url}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-[10px] text-slate-500 hover:text-blue-400 truncate max-w-[180px] block"
+                          className="text-[10px] text-blue-600 hover:underline truncate max-w-[180px] block font-normal"
                         >
-                          Xem nhóm
+                          Mở nhóm
                         </a>
                       )}
                     </td>
 
                     <td className="py-3 px-4 whitespace-nowrap">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
                         #{post.matched_keyword}
                       </span>
                     </td>
 
-                    <td className="py-3 px-4 text-slate-300">
+                    <td className="py-3 px-4 text-slate-700">
                       <div
                         className={`text-xs leading-relaxed ${
                           isExpanded ? 'whitespace-pre-wrap' : 'line-clamp-2'
@@ -293,7 +293,7 @@ export const PostsTable: React.FC<Props> = ({
                       {post.post_text && post.post_text.length > 120 && (
                         <button
                           onClick={() => setExpandedId(isExpanded ? null : post.id)}
-                          className="text-[11px] text-emerald-400 hover:underline mt-1 inline-flex items-center gap-0.5"
+                          className="text-[11px] text-emerald-600 font-medium hover:underline mt-1 inline-flex items-center gap-0.5"
                         >
                           {isExpanded ? (
                             <>
@@ -309,14 +309,14 @@ export const PostsTable: React.FC<Props> = ({
                     </td>
 
                     <td className="py-3 px-4 text-center whitespace-nowrap">
-                      <div className="flex items-center justify-center gap-2">
+                      <div className="flex items-center justify-center gap-1.5">
                         {post.post_link && (
                           <a
                             href={post.post_link}
                             target="_blank"
                             rel="noreferrer"
                             title="Mở bài viết trên Facebook"
-                            className="p-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500 text-blue-400 hover:text-white transition"
+                            className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white transition border border-blue-200"
                           >
                             <ExternalLink className="w-3.5 h-3.5" />
                           </a>
@@ -324,7 +324,7 @@ export const PostsTable: React.FC<Props> = ({
                         <button
                           onClick={() => onDeletePost(post.id)}
                           title="Xóa bài này"
-                          className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white transition"
+                          className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white transition border border-rose-200"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -340,4 +340,3 @@ export const PostsTable: React.FC<Props> = ({
     </div>
   );
 };
-

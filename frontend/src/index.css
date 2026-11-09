@@ -3,7 +3,6 @@
 @tailwind utilities;
 
 @layer utilities {
-  /* Hiệu ứng sóng radar tỏa tròn */
   @keyframes radar-sweep {
     0% {
       transform: scale(0.95);
@@ -24,22 +23,21 @@
   }
 }
 
-/* Custom scrollbar for dark theme */
+/* Light theme custom scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #020617;
+  background: #f1f5f9;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
+  background: #cbd5e1;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: #94a3b8;
 }
-

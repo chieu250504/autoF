@@ -6,6 +6,9 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['"Be Vietnam Pro"', 'Inter', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', 'sans-serif'],
+      },
       colors: {
         radar: {
           50: '#ecfdf5',
@@ -21,4 +24,3 @@ export default {
   },
   plugins: [],
 }
-

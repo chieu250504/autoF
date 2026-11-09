@@ -192,7 +192,7 @@ export const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
       <Header
         currentUser={currentUser}
         config={config}
@@ -240,7 +240,7 @@ export const App: React.FC = () => {
         />
       </main>
 
-      <footer className="py-4 border-t border-slate-900 text-center text-xs text-slate-500">
+      <footer className="py-4 border-t border-slate-200 text-center text-xs text-slate-500">
         FB Group Keyword Radar • Chế độ Đa Tài Khoản Thông Minh (Multi-Tenant Runner)
       </footer>
     </div>
