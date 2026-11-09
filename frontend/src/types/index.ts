@@ -32,3 +32,4 @@ export interface RadarPost {
   post_timestamp: number;
   detected_at: string;
 }
+

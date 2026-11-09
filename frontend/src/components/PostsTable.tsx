@@ -340,3 +340,4 @@ export const PostsTable: React.FC<Props> = ({
     </div>
   );
 };
+

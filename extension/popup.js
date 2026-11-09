@@ -541,8 +541,31 @@ async function loadConfig() {
       renderLogs();
       updateRunnerBarUI();
 
-      // Đồng bộ lấy bài viết mới nhất từ Supabase Cloud
+      // Đồng bộ lấy cấu hình & bài viết mới nhất từ Supabase Cloud
       if (typeof SupabaseClient !== "undefined") {
+        SupabaseClient.pullConfig().then(cloudConfig => {
+          if (cloudConfig) {
+            currentConfig.enabled = cloudConfig.enabled;
+            if (Array.isArray(cloudConfig.keywords) && cloudConfig.keywords.length > 0) {
+              currentConfig.keywords = cloudConfig.keywords;
+            }
+            if (Array.isArray(cloudConfig.groups)) {
+              currentConfig.groups = cloudConfig.groups.map(normalizeGroup);
+            }
+            currentConfig.reloadMinutes = cloudConfig.reloadMinutes || currentConfig.reloadMinutes;
+            currentConfig.maxScrollSteps = cloudConfig.maxScrollSteps || currentConfig.maxScrollSteps;
+            currentConfig.jitterPercent = typeof cloudConfig.jitterPercent === "number" ? cloudConfig.jitterPercent : currentConfig.jitterPercent;
+            currentConfig.scrollSpeed = cloudConfig.scrollSpeed || currentConfig.scrollSpeed;
+
+            chrome.storage.local.set(currentConfig);
+            masterToggle.checked = !!currentConfig.enabled;
+            updateStatusUI();
+            renderKeywords();
+            renderGroups();
+            updateTimingPreview();
+          }
+        }).catch(() => {});
+
         SupabaseClient.fetchPosts(50).then(cloudPosts => {
           if (cloudPosts && cloudPosts.length > 0) {
             const existingIds = new Set((currentConfig.logs || []).map(l => String(l.id)));

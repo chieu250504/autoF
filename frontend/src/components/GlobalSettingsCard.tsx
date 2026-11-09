@@ -132,3 +132,4 @@ export const GlobalSettingsCard: React.FC<Props> = ({ config, onSave, loading })
     </div>
   );
 };
+

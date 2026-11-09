@@ -95,3 +95,4 @@ export const PinLockModal: React.FC<Props> = ({ onUnlocked }) => {
     </div>
   );
 };
+

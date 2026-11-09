@@ -44,7 +44,10 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
             enabled: cloudConfig.enabled,
             keywords: cloudConfig.keywords || localConfig.keywords,
             groups: cloudConfig.groups || localConfig.groups,
-            reloadMinutes: cloudConfig.reloadMinutes || localConfig.reloadMinutes
+            reloadMinutes: cloudConfig.reloadMinutes || localConfig.reloadMinutes,
+            maxScrollSteps: cloudConfig.maxScrollSteps || localConfig.maxScrollSteps,
+            jitterPercent: typeof cloudConfig.jitterPercent === "number" ? cloudConfig.jitterPercent : localConfig.jitterPercent,
+            scrollSpeed: cloudConfig.scrollSpeed || localConfig.scrollSpeed
           };
 
           chrome.storage.local.set(updated, () => {

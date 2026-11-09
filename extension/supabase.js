@@ -120,12 +120,16 @@ const SupabaseClient = {
   },
 
   /**
-   * Kéo cấu hình từ Supabase về Extension (Để điều khiển từ xa qua web sau này)
+   * Kéo cấu hình từ Supabase về Extension (Để điều khiển từ xa qua web)
    */
   async pullConfig() {
     try {
-      const res = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/fbradar_config?id=eq.default&select=*`, {
-        headers: this.getHeaders()
+      const res = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/fbradar_config?id=eq.default&select=*&_t=${Date.now()}`, {
+        headers: {
+          ...this.getHeaders(),
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          "Pragma": "no-cache"
+        }
       });
 
       if (res.ok) {
@@ -133,13 +137,14 @@ const SupabaseClient = {
         if (data && data.length > 0) {
           const row = data[0];
           return {
-            enabled: row.enabled,
-            keywords: row.keywords,
-            groups: row.groups,
-            reloadMinutes: parseFloat(row.reload_minutes) || 0.75,
-            jitterPercent: row.jitter_percent,
-            scrollSpeed: row.scroll_speed,
-            maxScrollSteps: row.max_scroll_steps
+            enabled: Boolean(row.enabled),
+            keywords: Array.isArray(row.keywords) ? row.keywords : [],
+            groups: Array.isArray(row.groups) ? row.groups : [],
+            reloadMinutes: parseFloat(row.reload_minutes) || 10,
+            jitterPercent: typeof row.jitter_percent === "number" ? row.jitter_percent : 20,
+            scrollSpeed: row.scroll_speed || "medium",
+            maxScrollSteps: parseInt(row.max_scroll_steps, 10) || 10,
+            updatedAt: row.updated_at
           };
         }
       }

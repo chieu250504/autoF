@@ -33,6 +33,7 @@
         "*://facebook.com/groups/*"
       ],
       "js": [
+        "supabase.js",
         "content.js"
       ],
       "run_at": "document_idle"

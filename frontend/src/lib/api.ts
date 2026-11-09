@@ -116,3 +116,4 @@ export async function deletePost(id?: string, deleteAll?: boolean): Promise<bool
     return false;
   }
 }
+

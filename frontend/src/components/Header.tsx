@@ -105,3 +105,4 @@ export const Header: React.FC<Props> = ({ config, onToggleEnabled, onLock, loadi
     </header>
   );
 };
+
