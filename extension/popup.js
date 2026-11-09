@@ -17,12 +17,12 @@ let dbOverviewData = {
 };
 
 // DOM Elements
-const masterToggle = document.getElementById("masterToggle");
-const statusText = document.getElementById("statusText");
+const unifiedPowerBtn = document.getElementById("unifiedPowerBtn");
+const unifiedPowerBtnText = document.getElementById("unifiedPowerBtnText");
 const refreshDbBtn = document.getElementById("refreshDbBtn");
 const runnerDot = document.getElementById("runnerDot");
 const runnerStatusText = document.getElementById("runnerStatusText");
-const openRunnerBtn = document.getElementById("openRunnerBtn");
+const runnerSubText = document.getElementById("runnerSubText");
 
 const tabButtons = document.querySelectorAll(".tab-btn");
 const tabPanes = document.querySelectorAll(".tab-pane");
@@ -91,39 +91,44 @@ function setupEventListeners() {
     }, 600);
   });
 
-  // Nút Bắt đầu / Mở Tab Treo (gọi lại API và mở tab theo nhóm mới nhất)
-  openRunnerBtn.addEventListener("click", async () => {
-    showToast("Đang kết nối Database và khởi động Tab Treo...");
-    chrome.runtime.sendMessage({ action: "OPEN_OR_FOCUS_RUNNER_TAB" }).catch(() => {});
-    // Làm mới hiển thị
-    setTimeout(() => {
-      refreshDatabaseOverview(false);
-    }, 800);
-  });
+  // Nút DUY NHẤT để Bật / Tắt quét và tự động mở/đóng Tab Treo
+  if (unifiedPowerBtn) {
+    unifiedPowerBtn.addEventListener("click", async () => {
+      const willTurnOn = !dbOverviewData.enabled;
+      
+      unifiedPowerBtn.classList.add("loading");
+      if (unifiedPowerBtnText) {
+        unifiedPowerBtnText.textContent = willTurnOn ? "ĐANG BẬT..." : "ĐANG TẮT...";
+      }
 
-  // Master Toggle: Bật/Tắt quét toàn cục trên database
-  masterToggle.addEventListener("change", async () => {
-    const isChecked = masterToggle.checked;
-    updateStatusUI(isChecked);
-    
-    // Gửi cập nhật trực tiếp lên Supabase
-    try {
-      await fetch(`${SUPABASE_CONFIG.url}/rest/v1/fbradar_config?id=eq.default`, {
-        method: "PATCH",
-        headers: SupabaseClient.getHeaders(),
-        body: JSON.stringify({
-          enabled: isChecked,
-          updated_at: new Date().toISOString()
-        })
-      });
-
-      // Kéo lại cấu hình mới nhất
-      await refreshDatabaseOverview(false);
-      showToast(isChecked ? "Đã bật quét!" : "Đã tắt quét!");
-    } catch (err) {
-      console.warn("Lỗi cập nhật toggle:", err);
-    }
-  });
+      try {
+        if (willTurnOn) {
+          // Bật: Lưu enabled lên database và mở tab Facebook mới
+          chrome.runtime.sendMessage({ action: "START_RUNNER" }, () => {
+            dbOverviewData.enabled = true;
+            updatePowerUI(true);
+            updateRunnerBarUI();
+            showToast("Đã kích hoạt quét & Tự động mở Tab Treo!");
+          });
+        } else {
+          // Tắt: Lưu enabled: false lên database và đóng tab Facebook treo
+          chrome.runtime.sendMessage({ action: "STOP_RUNNER" }, () => {
+            dbOverviewData.enabled = false;
+            updatePowerUI(false);
+            updateRunnerBarUI();
+            showToast("Đã dừng quét & Đóng Tab Treo!");
+          });
+        }
+      } catch (err) {
+        console.warn("Lỗi thao tác nút nguồn:", err);
+      } finally {
+        setTimeout(async () => {
+          if (unifiedPowerBtn) unifiedPowerBtn.classList.remove("loading");
+          await refreshDatabaseOverview(false);
+        }, 1000);
+      }
+    });
+  }
 
   // Tab Hành vi: Preview thời gian
   if (reloadMinutesInput && jitterPercentInput) {
@@ -188,9 +193,8 @@ async function refreshDatabaseOverview(showNotification = false) {
 
 // Render dữ liệu tổng quan lên HTML
 function renderOverviewUI() {
-  const isEnabled = dbOverviewData.enabled;
-  masterToggle.checked = isEnabled;
-  updateStatusUI(isEnabled);
+  const isEnabled = Boolean(dbOverviewData.enabled);
+  updatePowerUI(isEnabled);
   updateRunnerBarUI();
 
   // 1. Thống kê số lượng
@@ -268,31 +272,61 @@ function renderOverviewUI() {
   }
 }
 
-// Cập nhật trạng thái switch
-function updateStatusUI(isOn) {
+// Cập nhật giao diện Nút Bật/Tắt duy nhất
+function updatePowerUI(isOn) {
+  if (!unifiedPowerBtn) return;
+  unifiedPowerBtn.classList.remove("loading");
+  const iconSpan = unifiedPowerBtn.querySelector(".btn-power-icon");
+
   if (isOn) {
-    statusText.textContent = "ĐANG BẬT";
-    statusText.className = "status-badge on";
+    unifiedPowerBtn.className = "btn-unified-power on";
+    if (iconSpan) iconSpan.textContent = "⏹";
+    if (unifiedPowerBtnText) unifiedPowerBtnText.textContent = "DỪNG QUÉT";
   } else {
-    statusText.textContent = "ĐÃ TẮT";
-    statusText.className = "status-badge off";
+    unifiedPowerBtn.className = "btn-unified-power off";
+    if (iconSpan) iconSpan.textContent = "▶";
+    if (unifiedPowerBtnText) unifiedPowerBtnText.textContent = "BẮT ĐẦU QUÉT";
   }
 }
 
-// Cập nhật Runner status bar
+// Cập nhật Thanh trạng thái Runner và hiển thị chi tiết
 function updateRunnerBarUI() {
+  const isEnabled = Boolean(dbOverviewData.enabled);
   const status = dbOverviewData.runnerStatus || "Chưa chạy";
-  runnerStatusText.textContent = `Tab Treo: ${status}`;
 
-  const isRunning = status.toLowerCase().includes("đang quét") || 
-                    status.toLowerCase().includes("đổi sang") || 
-                    status.toLowerCase().includes("lượt quét tới");
-
-  if (isRunning) {
-    runnerDot.className = "runner-dot active";
-  } else {
-    runnerDot.className = "runner-dot";
+  if (runnerStatusText) {
+    if (isEnabled) {
+      runnerStatusText.textContent = `Tab Treo: ${status}`;
+    } else {
+      runnerStatusText.textContent = "Hệ thống đang dừng";
+    }
   }
+
+  const isRunning = isEnabled && (
+    status.toLowerCase().includes("đang quét") || 
+    status.toLowerCase().includes("đổi sang") || 
+    status.toLowerCase().includes("lượt quét tới") ||
+    status.toLowerCase().includes("khởi tạo") ||
+    status.toLowerCase().includes("bắt đầu")
+  );
+
+  if (runnerDot) {
+    runnerDot.className = isRunning ? "runner-dot active" : "runner-dot";
+  }
+
+  if (runnerSubText) {
+    if (isEnabled) {
+      if (dbOverviewData.currentRunningGroup) {
+        runnerSubText.textContent = `Nhóm hiện tại: ${dbOverviewData.currentRunningGroup}`;
+      } else {
+        runnerSubText.textContent = "Tab Treo đang luân phiên quét các nhóm...";
+      }
+    } else {
+      runnerSubText.textContent = "Nhấn nút để tự động mở Tab Treo quét Facebook";
+    }
+  }
+
+  updatePowerUI(isEnabled);
 }
 
 // Tải bài viết từ bảng fbradar_posts trên Supabase
@@ -350,8 +384,9 @@ function listenToStorageChanges() {
       renderOverviewUI();
     }
     if (changes.enabled) {
-      dbOverviewData.enabled = changes.enabled.newValue;
-      updateStatusUI(changes.enabled.newValue);
+      dbOverviewData.enabled = Boolean(changes.enabled.newValue);
+      updatePowerUI(dbOverviewData.enabled);
+      updateRunnerBarUI();
     }
   });
 }

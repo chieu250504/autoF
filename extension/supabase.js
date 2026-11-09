@@ -334,6 +334,35 @@ const SupabaseClient = {
         })
       });
     } catch (e) {}
+  },
+
+  /**
+   * Cập nhật trạng thái Bật / Tắt quét toàn cục lên Database
+   */
+  async setMasterEnabled(enabled) {
+    try {
+      const now = new Date().toISOString();
+      await fetch(`${SUPABASE_CONFIG.url}/rest/v1/fbradar_config?id=eq.default`, {
+        method: "PATCH",
+        headers: this.getHeaders(),
+        body: JSON.stringify({
+          enabled: !!enabled,
+          updated_at: now
+        })
+      });
+
+      await fetch(`${SUPABASE_CONFIG.url}/rest/v1/fbradar_account_config`, {
+        method: "PATCH",
+        headers: this.getHeaders(),
+        body: JSON.stringify({
+          enabled: !!enabled,
+          updated_at: now
+        })
+      });
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 };
 

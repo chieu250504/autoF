@@ -170,9 +170,16 @@ function buildRunnerUrl(rawUrl) {
 
 // Khởi chạy hoặc chuyển tab treo, LUÔN LẤY DỮ LIỆU TRỰC TIẾP TỪ DATABASE
 async function handleOpenOrFocusRunnerTab() {
-  console.log("[FB Radar Background] Bắt đầu mở Tab Treo. Đang kéo dữ liệu mới nhất từ Database...");
+  console.log("[FB Radar Background] Bắt đầu mở Tab Treo. Đang kích hoạt và kéo dữ liệu mới nhất từ Database...");
   
-  // 1. Kéo cấu hình mới nhất trực tiếp từ Database
+  // 1. Kích hoạt enabled trên Database và local storage
+  try {
+    await SupabaseClient.setMasterEnabled(true);
+  } catch (e) {
+    console.warn("[FB Radar Background] Không thể cập nhật trạng thái master trên DB:", e);
+  }
+
+  // 2. Kéo cấu hình mới nhất trực tiếp từ Database
   const aggregated = await syncLatestConfigFromDatabase();
   const groups = (aggregated && Array.isArray(aggregated.groups)) ? aggregated.groups : [];
 
@@ -195,6 +202,12 @@ async function handleOpenOrFocusRunnerTab() {
           if (tab.windowId) {
             chrome.windows.update(tab.windowId, { focused: true });
           }
+          chrome.storage.local.set({
+            enabled: true,
+            runnerStatus: "Đang bắt đầu quét...",
+            currentRunningGroup: targetUrl
+          });
+          SupabaseClient.sendHeartbeat("Đang bắt đầu quét...", targetUrl).catch(() => {});
           return;
         }
       } catch (err) {
@@ -202,9 +215,10 @@ async function handleOpenOrFocusRunnerTab() {
       }
     }
 
-    // Tạo tab treo mới
-    chrome.tabs.create({ url: targetUrl }, (newTab) => {
+    // Tạo tab treo mới sang một tab khác
+    chrome.tabs.create({ url: targetUrl, active: true }, (newTab) => {
       chrome.storage.local.set({
+        enabled: true,
         runnerTabId: newTab.id,
         runnerStatus: "Đang khởi tạo Tab Treo...",
         currentRunningGroup: targetUrl
@@ -212,6 +226,40 @@ async function handleOpenOrFocusRunnerTab() {
       // Gửi heartbeat lên database
       SupabaseClient.sendHeartbeat("Đang khởi tạo Tab Treo...", targetUrl).catch(() => {});
     });
+  });
+}
+
+// Dừng Tab Treo và chuyển trạng thái quét về OFF
+async function handleStopRunnerTab(closeTab = true) {
+  console.log("[FB Radar Background] Đang tắt quét và đóng Tab Treo...");
+  try {
+    await SupabaseClient.setMasterEnabled(false);
+  } catch (e) {
+    console.warn("[FB Radar Background] Lỗi tắt master trên DB:", e);
+  }
+
+  chrome.storage.local.get(["runnerTabId"], async (stored) => {
+    const runnerId = stored.runnerTabId;
+    if (runnerId && closeTab) {
+      try {
+        await chrome.tabs.remove(runnerId);
+      } catch (err) {
+        // Tab có thể đã được người dùng đóng từ trước
+      }
+    }
+
+    const updated = {
+      enabled: false,
+      runnerTabId: null,
+      runnerStatus: "Đã dừng quét",
+      currentRunningGroup: null
+    };
+
+    chrome.storage.local.set(updated, () => {
+      broadcastConfig(updated);
+    });
+
+    SupabaseClient.sendHeartbeat("Đã dừng quét", null).catch(() => {});
   });
 }
 
@@ -232,9 +280,21 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 
 // Listener for messages from popup or content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === "OPEN_OR_FOCUS_RUNNER_TAB") {
-    handleOpenOrFocusRunnerTab();
-    sendResponse({ ok: true });
+  if (message.action === "START_RUNNER") {
+    handleOpenOrFocusRunnerTab().then(() => {
+      sendResponse({ ok: true });
+    });
+    return true;
+  } else if (message.action === "STOP_RUNNER") {
+    handleStopRunnerTab(message.closeTab !== false).then(() => {
+      sendResponse({ ok: true });
+    });
+    return true;
+  } else if (message.action === "OPEN_OR_FOCUS_RUNNER_TAB") {
+    handleOpenOrFocusRunnerTab().then(() => {
+      sendResponse({ ok: true });
+    });
+    return true;
   } else if (message.action === "REFRESH_DATABASE_CONFIG") {
     // Popup hoặc tab yêu cầu đồng bộ database ngay lập tức
     syncLatestConfigFromDatabase().then((aggregated) => {

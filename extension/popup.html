@@ -16,26 +16,25 @@
         <span class="cloud-badge">☁️ DB Realtime</span>
       </div>
       <div class="header-actions">
-        <button type="button" id="refreshDbBtn" class="btn-refresh" title="Làm mới">
+        <button type="button" id="refreshDbBtn" class="btn-refresh" title="Làm mới dữ liệu từ Database">
           <span class="refresh-icon">🔄</span> Làm mới
         </button>
-        <div class="switch-container">
-          <span id="statusText" class="status-badge off">ĐÃ TẮT</span>
-          <label class="toggle-switch">
-            <input type="checkbox" id="masterToggle">
-            <span class="slider"></span>
-          </label>
-        </div>
       </div>
     </header>
 
-    <!-- Quick Runner Tab Status Bar -->
-    <div class="runner-bar">
-      <div class="runner-info">
-        <span class="runner-dot" id="runnerDot"></span>
-        <span id="runnerStatusText">Tab Treo: Đang dừng</span>
+    <!-- Master Control Bar: 1 NÚT DUY NHẤT ĐỂ BẬT / TẮT -->
+    <div class="unified-control-bar">
+      <div class="unified-status-info">
+        <div class="unified-status-header">
+          <span class="runner-dot" id="runnerDot"></span>
+          <span id="runnerStatusText" class="unified-status-title">Hệ thống đang dừng</span>
+        </div>
+        <div id="runnerSubText" class="unified-status-sub">Sẵn sàng mở Tab Treo quét Facebook</div>
       </div>
-      <button type="button" id="openRunnerBtn" class="btn-runner">🚀 Mở Tab Treo</button>
+      <button type="button" id="unifiedPowerBtn" class="btn-unified-power off" title="Bật hoặc Tắt quét">
+        <span class="btn-power-icon">▶</span>
+        <span id="unifiedPowerBtnText">BẮT ĐẦU QUÉT</span>
+      </button>
     </div>
 
     <!-- Navigation Tabs -->

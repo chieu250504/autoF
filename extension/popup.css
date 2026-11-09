@@ -121,52 +121,47 @@ body {
   to { transform: rotate(360deg); }
 }
 
-.switch-container {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.status-badge {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 12px;
-  text-transform: uppercase;
-}
-
-.status-badge.on {
-  background: #dcfce7;
-  color: var(--success);
-}
-
-.status-badge.off {
-  background: #fee2e2;
-  color: var(--danger);
-}
-
-/* Runner Tab Quick Status Bar */
-.runner-bar {
-  background: #f1f5f9;
+/* Master Control Bar: Single Unified Power Button */
+.unified-control-bar {
+  background: #ffffff;
   border-bottom: 1px solid var(--border-color);
-  padding: 8px 12px;
+  padding: 10px 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
-.runner-info {
+.unified-status-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+  flex: 1;
+}
+
+.unified-status-header {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #475569;
+}
+
+.unified-status-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e293b;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.unified-status-sub {
+  font-size: 11px;
+  color: #64748b;
   white-space: nowrap;
-  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .runner-dot {
@@ -175,30 +170,67 @@ body {
   border-radius: 50%;
   background: #94a3b8;
   flex-shrink: 0;
+  transition: all 0.2s;
 }
 
 .runner-dot.active {
-  background: var(--success);
-  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.25);
+  background: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.25);
   animation: pulse 1.8s infinite;
 }
 
-.btn-runner {
-  background: #0284c7;
-  color: #fff;
-  border: none;
-  padding: 5px 11px;
-  border-radius: 14px;
-  font-size: 11px;
-  font-weight: 600;
+.btn-unified-power {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
   cursor: pointer;
+  border: none;
   white-space: nowrap;
-  transition: background 0.2s;
-  box-shadow: 0 1px 2px rgba(2, 132, 199, 0.2);
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  user-select: none;
 }
 
-.btn-runner:hover {
-  background: #0369a1;
+.btn-unified-power .btn-power-icon {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.btn-unified-power.off {
+  background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(22, 163, 74, 0.35);
+}
+
+.btn-unified-power.off:hover {
+  background: linear-gradient(135deg, #15803d 0%, #166534 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(22, 163, 74, 0.4);
+}
+
+.btn-unified-power.on {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.35);
+}
+
+.btn-unified-power.on:hover {
+  background: linear-gradient(135deg, #b91c1c 0%, #991b1b 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(220, 38, 38, 0.4);
+}
+
+.btn-unified-power:active {
+  transform: translateY(0);
+}
+
+.btn-unified-power.loading {
+  opacity: 0.7;
+  pointer-events: none;
 }
 
 /* Toggle Switch */
