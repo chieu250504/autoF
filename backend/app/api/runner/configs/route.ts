@@ -37,15 +37,16 @@ export async function GET() {
       });
     }
 
-    // 2. Chuẩn hóa URL nhóm để phát hiện trùng lặp
+    // 2. Chuẩn hóa URL nhóm để phát hiện trùng lặp (bỏ www, query, hash, trailing slash)
     const cleanGroupUrl = (raw: string) => {
       try {
-        let u = raw.trim();
+        let u = (raw || '').trim();
         if (!u.startsWith('http')) u = 'https://' + u;
         const obj = new URL(u);
-        return (obj.origin + obj.pathname).toLowerCase().replace(/\/+$/, '');
+        const host = obj.hostname.replace(/^www\./, '');
+        return `https://${host}${obj.pathname}`.toLowerCase().replace(/\/+$/, '');
       } catch {
-        return raw.trim().toLowerCase().replace(/\/+$/, '');
+        return (raw || '').trim().toLowerCase().replace(/\/+$/, '');
       }
     };
 
@@ -142,3 +143,4 @@ export async function GET() {
     return errorResponse(err?.message || 'Lỗi server khi tổng hợp cấu hình quét', 500);
   }
 }
+

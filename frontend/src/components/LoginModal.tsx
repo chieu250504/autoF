@@ -172,3 +172,4 @@ export const LoginModal: React.FC<Props> = ({ onLoggedIn }) => {
     </div>
   );
 };
+

@@ -109,8 +109,10 @@ export async function PATCH(request: NextRequest) {
 
     const { data, error } = await supabase
       .from('fbradar_account_config')
-      .update(payload)
-      .eq('account_id', account.id)
+      .upsert({
+        account_id: account.id,
+        ...payload
+      }, { onConflict: 'account_id' })
       .select()
       .maybeSingle();
 

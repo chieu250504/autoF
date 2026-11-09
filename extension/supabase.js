@@ -149,13 +149,14 @@ const SupabaseClient = {
         };
       }
 
-      // Chuẩn hóa canonical URL nhóm để chống quét trùng
+      // Chuẩn hóa canonical URL nhóm để chống quét trùng (bỏ www, trailing slash)
       const cleanGroupUrl = (raw) => {
         try {
           let u = (raw || "").trim();
           if (!u.startsWith("http")) u = "https://" + u;
           const obj = new URL(u);
-          return (obj.origin + obj.pathname).toLowerCase().replace(/\/+$/, "");
+          const host = obj.hostname.replace(/^www\./, "");
+          return `https://${host}${obj.pathname}`.toLowerCase().replace(/\/+$/, "");
         } catch {
           return (raw || "").trim().toLowerCase().replace(/\/+$/, "");
         }
