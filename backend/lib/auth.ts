@@ -40,3 +40,4 @@ export function checkRequestAuth(request: NextRequest): boolean {
 
   return false;
 }
+

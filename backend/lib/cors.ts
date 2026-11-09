@@ -26,3 +26,4 @@ export function errorResponse(message: string, status = 400) {
     { status, headers: corsHeaders }
   );
 }
+
