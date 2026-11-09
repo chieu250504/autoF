@@ -575,7 +575,7 @@ const RadarEngine = {
           keywords: [],
           allKeywords: [],
           groups: [],
-          reloadMinutes: 10,
+          reloadMinutes: 5,
           jitterPercent: 20,
           scrollSpeed: "medium",
           maxScrollSteps: 8,
@@ -813,20 +813,23 @@ const RadarEngine = {
     }
 
     const enabledGroups = this.getEnabledGroups();
+    if (!enabledGroups || enabledGroups.length === 0) {
+      this.pauseByRemote("Chưa có nhóm nào được bật");
+      return;
+    }
+
+    const totalGroups = enabledGroups.length;
     const currentIndex = this.getCurrentGroupIndex(enabledGroups);
     const currentGroup = enabledGroups[currentIndex];
+    const isLastGroupInRound = (currentIndex >= totalGroups - 1);
     const groupName = currentGroup ? (currentGroup.name || PostExtractor.getGroupTitle()) : PostExtractor.getGroupTitle();
 
-    // Lấy cài đặt cuộn & thời gian dừng riêng cho nhóm này (nếu có)
+    // Số bước cuộn riêng của nhóm này (mô phỏng người đọc thật để quét hết bài mới)
     const groupScrollSteps = (currentGroup && currentGroup.scrollSteps > 0)
       ? currentGroup.scrollSteps
-      : (this.config.maxScrollSteps || 10);
+      : (this.config.maxScrollSteps || 8);
 
-    const groupReloadMinutes = (currentGroup && currentGroup.reloadMinutes > 0)
-      ? currentGroup.reloadMinutes
-      : (this.config.reloadMinutes || 10);
-
-    const statusText = `Đang quét: ${groupName} (${currentIndex + 1}/${Math.max(1, enabledGroups.length)}) [${groupScrollSteps} bước cuộn, dừng ${groupReloadMinutes}p]`;
+    const statusText = `Đang quét: ${groupName} (${currentIndex + 1}/${totalGroups}) [${groupScrollSteps} bước cuộn]`;
     this.updateStatusBadge(statusText);
 
     // Đồng bộ trạng thái và nhịp tim về Supabase Cloud
@@ -840,12 +843,12 @@ const RadarEngine = {
       currentGroup: currentGroup ? currentGroup.url : window.location.href
     }).catch(() => {});
 
-    await HumanSimulator.sleep(HumanSimulator.randomBetween(2000, 3500));
+    await HumanSimulator.sleep(HumanSimulator.randomBetween(1500, 2500));
 
-    // Quét đỉnh trang
+    // 1. Quét đỉnh trang
     this.scanVisiblePosts();
 
-    // Cuộn lướt nhẹ nhàng với số nhịp của riêng nhóm này
+    // 2. Cuộn lướt nhẹ nhàng với số nhịp của riêng nhóm này để đảm bảo quét xong nhóm
     await HumanSimulator.simulateHumanScroll({
       steps: groupScrollSteps,
       speed: this.config.scrollSpeed || "medium",
@@ -854,34 +857,55 @@ const RadarEngine = {
       }
     });
 
-    // Lập lịch luân phiên chuyển nhóm tiếp theo theo thời gian dừng của nhóm này
-    this.scheduleNextRotation(enabledGroups, currentIndex, groupReloadMinutes);
+    // 3. Đã quét xong nhóm này!
+    if (!isLastGroupInRound) {
+      // CHƯA HẾT VÒNG: Chuyển sang nhóm tiếp theo NGAY LẬP TỨC (chỉ nghỉ 2.5s - 3.5s để đổi trang an toàn)
+      const nextIndex = currentIndex + 1;
+      const nextGroup = enabledGroups[nextIndex];
+      const nextName = nextGroup ? (nextGroup.name || `Nhóm ${nextIndex + 1}`) : "tiếp theo";
+      const transText = `Xong (${currentIndex + 1}/${totalGroups}). Chuyển sang ${nextName} ngay...`;
+
+      this.updateStatusBadge(transText);
+      console.log(`[FB Radar] Đã quét xong nhóm (${currentIndex + 1}/${totalGroups}). Chuyển ngay sang nhóm kế tiếp.`);
+
+      if (typeof SupabaseClient !== "undefined") {
+        SupabaseClient.sendHeartbeat(transText, currentGroup ? currentGroup.url : window.location.href).catch(() => {});
+      }
+
+      await HumanSimulator.sleep(HumanSimulator.randomBetween(2500, 3800));
+      await this.rotateToNextGroup(enabledGroups, currentIndex);
+    } else {
+      // ĐÃ QUÉT HẾT TẤT CẢ CÁC NHÓM TRONG VÒNG (hoặc chỉ có 1 nhóm):
+      // Nghỉ 5 phút (hoặc theo cấu hình reload_minutes) trước khi quét lại vòng mới!
+      const roundIntervalMinutes = (this.config.reloadMinutes && this.config.reloadMinutes > 0)
+        ? this.config.reloadMinutes
+        : 5;
+
+      console.log(`[FB Radar] 🎉 Đã hoàn thành 1 vòng quét tất cả (${totalGroups}/${totalGroups}) nhóm! Nghỉ ${roundIntervalMinutes} phút trước vòng quét kế tiếp.`);
+      this.scheduleNextRound(enabledGroups, roundIntervalMinutes);
+    }
   },
 
-  scheduleNextRotation(enabledGroups, currentIndex, customReloadMinutes = null) {
+  scheduleNextRound(enabledGroups, roundIntervalMinutes) {
     if (!this.isRunning) return;
 
-    const stayMinutes = (customReloadMinutes && customReloadMinutes > 0)
-      ? customReloadMinutes
-      : (this.config.reloadMinutes || 10);
-
     const delayMs = HumanSimulator.calculateJitterMs(
-      stayMinutes,
+      roundIntervalMinutes,
       this.config.jitterPercent || 20
     );
 
     this.nextRunTimestamp = Date.now() + delayMs;
-    console.log(`[FB Radar] Chu kỳ kế tiếp được lập lịch sau ${Math.round(delayMs / 1000)}s (thời gian dừng nhóm này: ${stayMinutes} phút).`);
+    console.log(`[FB Radar] Vòng quét mới cho tất cả các nhóm sẽ bắt đầu sau ${Math.round(delayMs / 1000)}s.`);
 
-    this.startCountdown(enabledGroups, currentIndex);
+    this.startRoundCountdown(enabledGroups);
 
     if (this.cycleTimerId) clearTimeout(this.cycleTimerId);
     this.cycleTimerId = setTimeout(() => {
-      this.rotateToNextGroup(enabledGroups, currentIndex);
+      this.startNewRound(enabledGroups);
     }, delayMs);
   },
 
-  startCountdown(enabledGroups, currentIndex) {
+  startRoundCountdown(enabledGroups) {
     if (this.countdownIntervalId) clearInterval(this.countdownIntervalId);
 
     const updateTimer = async () => {
@@ -893,24 +917,18 @@ const RadarEngine = {
       const secs = remainingSec % 60;
       const formatted = `${mins}m ${secs < 10 ? "0" : ""}${secs}s`;
 
-      const nextIndex = enabledGroups.length > 1 ? (currentIndex + 1) % enabledGroups.length : currentIndex;
-      const nextName = enabledGroups[nextIndex] ? (enabledGroups[nextIndex].name || `Nhóm ${nextIndex + 1}`) : "tiếp theo";
-
-      const displayText = enabledGroups.length > 1 
-        ? `Đổi sang ${nextName} sau: ${formatted}`
-        : `Lượt quét tới: ${formatted}`;
-
+      const displayText = `Đã quét xong ${enabledGroups.length}/${enabledGroups.length} nhóm. Vòng tới sau: ${formatted}`;
       this.updateStatusBadge(displayText);
 
-      // Định kỳ mỗi 10 giây: kiểm tra lệnh Bật/Tắt từ Web Dashboard và gửi nhịp tim
+      // Định kỳ mỗi 10 giây: gửi nhịp tim và kiểm tra lệnh tắt từ Web Dashboard
       if (remainingSec % 10 === 0) {
         chrome.storage.local.set({
           runnerStatus: displayText,
-          currentRunningGroup: enabledGroups[currentIndex] ? enabledGroups[currentIndex].url : window.location.href
+          currentRunningGroup: window.location.href
         });
 
         if (typeof SupabaseClient !== "undefined") {
-          SupabaseClient.sendHeartbeat(displayText, enabledGroups[currentIndex] ? enabledGroups[currentIndex].url : window.location.href).catch(() => {});
+          SupabaseClient.sendHeartbeat(displayText, window.location.href).catch(() => {});
         }
 
         // Kiểm tra xem Web Dashboard có tắt công tắc quét không
@@ -927,7 +945,7 @@ const RadarEngine = {
         }
       }
 
-      // Khi hết thời gian: Tự động kích hoạt ngay lập tức
+      // Khi hết 5 phút -> Tự động bắt đầu vòng quét mới từ nhóm đầu tiên!
       if (now >= this.nextRunTimestamp) {
         clearInterval(this.countdownIntervalId);
         this.countdownIntervalId = null;
@@ -935,12 +953,56 @@ const RadarEngine = {
           clearTimeout(this.cycleTimerId);
           this.cycleTimerId = null;
         }
-        await this.rotateToNextGroup(enabledGroups, currentIndex);
+        await this.startNewRound(enabledGroups);
       }
     };
 
     updateTimer();
     this.countdownIntervalId = setInterval(updateTimer, 1000);
+  },
+
+  async startNewRound(enabledGroups) {
+    if (!this.isRunning) return;
+
+    if (this.cycleTimerId) clearTimeout(this.cycleTimerId);
+    if (this.countdownIntervalId) clearInterval(this.countdownIntervalId);
+
+    // Kéo cấu hình mới nhất từ Cloud trước khi khởi động vòng quét mới
+    await this.syncWithCloud();
+    if (!this.shouldRun()) {
+      this.pauseByRemote("Đã tắt từ Web Dashboard");
+      return;
+    }
+
+    const freshGroups = this.getEnabledGroups();
+    if (!freshGroups || freshGroups.length === 0) return;
+
+    const firstGroup = freshGroups[0];
+    const targetUrl = this.buildRunnerUrl(firstGroup.url);
+
+    console.log(`[FB Radar] 🚀 Bắt đầu vòng quét mới! Nhóm 1/${freshGroups.length}:`, firstGroup.url);
+    this.updateStatusBadge(`Bắt đầu vòng mới: ${firstGroup.name || "Nhóm 1"}...`);
+
+    chrome.runtime.sendMessage({
+      action: "UPDATE_RUNNER_STATUS",
+      status: `Bắt đầu vòng mới: ${firstGroup.name || "Nhóm 1"}`,
+      currentGroup: firstGroup.url
+    }).catch(() => {});
+
+    const cleanCurrent = window.location.href.split('#')[0].split('?')[0].toLowerCase();
+    const cleanTarget = targetUrl.split('#')[0].split('?')[0].toLowerCase();
+
+    if (cleanCurrent === cleanTarget) {
+      // Đang ở đúng nhóm đầu tiên -> reload trang để quét bài mới
+      chrome.runtime.sendMessage({ action: "NAVIGATE_OR_RELOAD_RUNNER", isReload: true }, () => {
+        setTimeout(() => window.location.reload(), 400);
+      });
+    } else {
+      // Điều hướng về nhóm đầu tiên
+      chrome.runtime.sendMessage({ action: "NAVIGATE_OR_RELOAD_RUNNER", url: targetUrl, isReload: false }, () => {
+        setTimeout(() => { window.location.href = targetUrl; }, 400);
+      });
+    }
   },
 
   async rotateToNextGroup(enabledGroups, currentIndex) {
@@ -949,7 +1011,7 @@ const RadarEngine = {
     if (this.cycleTimerId) clearTimeout(this.cycleTimerId);
     if (this.countdownIntervalId) clearInterval(this.countdownIntervalId);
 
-    // Kéo cấu hình mới nhất từ Cloud trước khi chuyển nhóm để cập nhật danh sách nhóm mới
+    // Kéo cấu hình mới nhất từ Cloud trước khi chuyển nhóm
     await this.syncWithCloud();
     if (!this.shouldRun()) {
       this.pauseByRemote("Đã tắt từ Web Dashboard");
@@ -957,35 +1019,27 @@ const RadarEngine = {
     }
 
     const freshGroups = this.getEnabledGroups();
-
     if (!freshGroups || freshGroups.length <= 1) {
-      // Chỉ có 1 nhóm hoặc 0 nhóm -> reload lại trang để quét tiếp bài mới
-      console.log("[FB Radar] Tiến hành làm mới trang an toàn theo chu kỳ.");
-      this.updateStatusBadge("Đang làm mới trang...");
-
       chrome.runtime.sendMessage({ action: "NAVIGATE_OR_RELOAD_RUNNER", isReload: true }, () => {
-        setTimeout(() => {
-          window.location.reload();
-        }, 400);
+        setTimeout(() => window.location.reload(), 400);
       });
       return;
     }
 
-    // Chuyển sang nhóm kế tiếp trong danh sách luân phiên (Round-Robin)
+    // Chuyển sang nhóm kế tiếp
     const nextIndex = (currentIndex + 1) % freshGroups.length;
     const nextGroup = freshGroups[nextIndex];
     const nextUrl = this.buildRunnerUrl(nextGroup.url);
 
-    console.log(`[FB Radar] Chuyển luân phiên sang nhóm (${nextIndex + 1}/${enabledGroups.length}):`, nextGroup.url);
-    this.updateStatusBadge(`Đang chuyển sang nhóm ${nextIndex + 1}/${enabledGroups.length}...`);
+    console.log(`[FB Radar] Chuyển luân phiên sang nhóm (${nextIndex + 1}/${freshGroups.length}):`, nextGroup.url);
+    this.updateStatusBadge(`Chuyển sang nhóm ${nextIndex + 1}/${freshGroups.length}...`);
 
     chrome.runtime.sendMessage({
       action: "UPDATE_RUNNER_STATUS",
-      status: `Đang chuyển sang: ${nextGroup.name || "Nhóm tiếp theo"}`,
+      status: `Chuyển sang: ${nextGroup.name || "Nhóm tiếp theo"}`,
       currentGroup: nextGroup.url
     }).catch(() => {});
 
-    // Kiểm tra xem có trùng URL nhóm hiện tại không
     const cleanCurrent = window.location.href.split('#')[0].split('?')[0].toLowerCase();
     const cleanNext = nextUrl.split('#')[0].split('?')[0].toLowerCase();
 

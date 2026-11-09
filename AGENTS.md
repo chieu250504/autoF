@@ -76,7 +76,6 @@ Hai bảng dữ liệu sau đã được khởi tạo và chạy trực tiếp t
    - `post_time`: `text` (VD: `5 phút trước`)
    - `post_timestamp`: `bigint` (Timestamp hỗ trợ sắp xếp bài mới nhất)
    - `detected_at`: `timestamptz`
-
 ---
 
 ## 4. Các Nguyên Tắc Bất Di Bất Dịch (Immutable Rules)

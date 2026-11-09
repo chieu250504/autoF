@@ -418,7 +418,7 @@ async function testTelegram() {
 // Timing preview
 function updateTimingPreview() {
   if (!reloadMinutesInput || !jitterPercentInput) return;
-  const baseMinutes = parseFloat(reloadMinutesInput.value) || 10;
+  const baseMinutes = parseFloat(reloadMinutesInput.value) || 5;
   const jitter = parseInt(jitterPercentInput.value, 10) || 20;
 
   const minMin = Math.max(0.4, baseMinutes * (1 - jitter / 100));
@@ -430,7 +430,7 @@ function updateTimingPreview() {
     return secs > 0 ? `${mins}p ${secs}s` : `${mins} phút`;
   };
 
-  calcPreview.innerHTML = `Thời gian dừng ở mỗi nhóm: <b>${formatMinSec(minMin)} ~ ${formatMinSec(maxMin)}</b> (ngẫu nhiên).`;
+  calcPreview.innerHTML = `Nghỉ sau khi quét xong tất cả các nhóm: <b>${formatMinSec(minMin)} ~ ${formatMinSec(maxMin)}</b>.`;
 }
 
 // Xuất file CSV

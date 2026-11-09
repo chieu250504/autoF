@@ -9,8 +9,8 @@ interface Props {
 }
 
 export const GlobalSettingsCard: React.FC<Props> = ({ config, onSave, loading }) => {
-  const [reloadMinutes, setReloadMinutes] = useState(10);
-  const [scrollSteps, setScrollSteps] = useState(10);
+  const [reloadMinutes, setReloadMinutes] = useState(5);
+  const [scrollSteps, setScrollSteps] = useState(8);
   const [scrollSpeed, setScrollSpeed] = useState('medium');
   const [jitterPercent, setJitterPercent] = useState(20);
   const [saving, setSaving] = useState(false);
@@ -18,8 +18,8 @@ export const GlobalSettingsCard: React.FC<Props> = ({ config, onSave, loading })
 
   useEffect(() => {
     if (config) {
-      setReloadMinutes(config.reload_minutes ?? 10);
-      setScrollSteps(config.max_scroll_steps ?? 10);
+      setReloadMinutes(config.reload_minutes ?? 5);
+      setScrollSteps(config.max_scroll_steps ?? 8);
       setScrollSpeed(config.scroll_speed ?? 'medium');
       setJitterPercent(config.jitter_percent ?? 20);
     }
@@ -70,7 +70,7 @@ export const GlobalSettingsCard: React.FC<Props> = ({ config, onSave, loading })
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3">
           <div>
-            <label className="block text-[11px] font-medium text-slate-600 mb-1">Chu kỳ mặc định (phút):</label>
+            <label className="block text-[11px] font-medium text-slate-600 mb-1">Nghỉ giữa các vòng (phút):</label>
             <input
               type="number"
               step="0.1"

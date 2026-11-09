@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
         enabled: true,
         keywords: ['tuyển dụng', 'báo giá'],
         groups: [],
-        reload_minutes: 10,
+        reload_minutes: 5,
         jitter_percent: 20,
         scroll_speed: 'medium',
         max_scroll_steps: 10,

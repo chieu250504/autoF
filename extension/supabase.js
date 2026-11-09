@@ -259,12 +259,24 @@ const SupabaseClient = {
 
       const hasActiveTargets = mergedGroups.length > 0;
 
+      // Khoảng nghỉ giữa các vòng quét toàn bộ
+      let minRoundInterval = 5;
+      if (activeConfigs.length > 0) {
+        const intervals = activeConfigs
+          .map(a => parseFloat(a.reload_minutes))
+          .filter(n => !isNaN(n) && n > 0);
+        if (intervals.length > 0) {
+          minRoundInterval = Math.min(...intervals);
+        }
+      }
+
       return {
         enabled: hasActiveTargets && activeConfigs.length > 0,
         accounts: activeConfigs.map(a => a.account_id),
         groups: mergedGroups,
         allKeywords: Array.from(globalKeywordsSet),
-        keywordAccountMap
+        keywordAccountMap,
+        reloadMinutes: minRoundInterval
       };
     } catch (err) {
       console.warn("[Supabase] Lỗi hợp nhất cấu hình đa tài khoản:", err);
