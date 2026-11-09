@@ -72,6 +72,16 @@ body {
   color: var(--primary);
 }
 
+.cloud-badge {
+  font-size: 10px;
+  background: #eef2ff;
+  color: #4f46e5;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+  border: 1px solid #c7d2fe;
+}
+
 .switch-container {
   display: flex;
   align-items: center;

@@ -540,6 +540,27 @@ async function loadConfig() {
       updateTimingPreview();
       renderLogs();
       updateRunnerBarUI();
+
+      // Đồng bộ lấy bài viết mới nhất từ Supabase Cloud
+      if (typeof SupabaseClient !== "undefined") {
+        SupabaseClient.fetchPosts(50).then(cloudPosts => {
+          if (cloudPosts && cloudPosts.length > 0) {
+            const existingIds = new Set((currentConfig.logs || []).map(l => String(l.id)));
+            let hasNew = false;
+            cloudPosts.forEach(cp => {
+              if (!existingIds.has(String(cp.id))) {
+                currentConfig.logs.push(cp);
+                hasNew = true;
+              }
+            });
+            if (hasNew) {
+              chrome.storage.local.set({ logs: currentConfig.logs });
+              renderLogs();
+            }
+          }
+        }).catch(() => {});
+      }
+
       resolve();
     });
   });
@@ -557,6 +578,11 @@ function saveConfig(isSilent = false) {
   currentConfig.desktopNotify = desktopNotifyInput.checked;
   currentConfig.tgBotToken = tgBotTokenInput.value.trim();
   currentConfig.tgChatId = tgChatIdInput.value.trim();
+
+  // Đẩy cấu hình lên Supabase Cloud
+  if (typeof SupabaseClient !== "undefined") {
+    SupabaseClient.pushConfig(currentConfig).catch(() => {});
+  }
 
   chrome.storage.local.set(currentConfig, () => {
     chrome.runtime.sendMessage({ action: "CONFIG_UPDATED", config: currentConfig }).catch(() => {});

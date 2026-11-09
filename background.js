@@ -1,15 +1,61 @@
 /**
  * FB Group Keyword Radar - Background Service Worker (Manifest V3)
- * Handles notifications, Telegram dispatch, and Single Tab Runner orchestration
+ * Handles notifications, Telegram dispatch, Single Tab Runner orchestration, and Supabase Cloud Sync
  */
 
-console.log("%c[FB Radar Background]%c Service worker initialized.", "color: #1877f2; font-weight: bold;", "color: inherit;");
+importScripts("supabase.js");
+
+console.log("%c[FB Radar Background]%c Service worker initialized with Supabase Cloud Sync.", "color: #1877f2; font-weight: bold;", "color: inherit;");
 
 // Map notificationId to postUrl
 const notificationUrls = new Map();
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[FB Radar Background] Extension installed/updated successfully.");
+
+  // Thiết lập Alarm định kỳ 1 phút để đồng bộ lệnh điều khiển từ Supabase
+  chrome.alarms.create("sync_supabase_config", { periodInMinutes: 1 });
+
+  // Đẩy cấu hình ban đầu lên Supabase
+  chrome.storage.local.get(null, (stored) => {
+    if (stored && stored.keywords) {
+      SupabaseClient.pushConfig(stored).catch(() => {});
+    }
+  });
+});
+
+// Lắng nghe alarm để kéo cấu hình từ Supabase (Hỗ trợ điều khiển bật/tắt từ xa qua Web)
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === "sync_supabase_config") {
+    try {
+      const cloudConfig = await SupabaseClient.pullConfig();
+      if (!cloudConfig) return;
+
+      chrome.storage.local.get(null, (localConfig) => {
+        // Kiểm tra xem cấu hình trên Cloud có thay đổi so với local không
+        const isEnabledChanged = localConfig.enabled !== cloudConfig.enabled;
+        const isKeywordsChanged = JSON.stringify(localConfig.keywords) !== JSON.stringify(cloudConfig.keywords);
+        const isGroupsChanged = JSON.stringify(localConfig.groups) !== JSON.stringify(cloudConfig.groups);
+
+        if (isEnabledChanged || isKeywordsChanged || isGroupsChanged) {
+          console.log("[FB Radar Background] Phát hiện cấu hình thay đổi từ Supabase Cloud. Cập nhật...");
+          const updated = {
+            ...localConfig,
+            enabled: cloudConfig.enabled,
+            keywords: cloudConfig.keywords || localConfig.keywords,
+            groups: cloudConfig.groups || localConfig.groups,
+            reloadMinutes: cloudConfig.reloadMinutes || localConfig.reloadMinutes
+          };
+
+          chrome.storage.local.set(updated, () => {
+            broadcastConfig(updated);
+          });
+        }
+      });
+    } catch (e) {
+      // Ignore background fetch error
+    }
+  }
 });
 
 // Broadcast config updates to all open Facebook tabs
@@ -188,11 +234,16 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "CONFIG_UPDATED") {
     broadcastConfig(message.config);
+    // Đồng bộ cấu hình lên Supabase Cloud
+    SupabaseClient.pushConfig(message.config).catch(() => {});
   } else if (message.action === "OPEN_OR_FOCUS_RUNNER_TAB") {
     handleOpenOrFocusRunnerTab();
   } else if (message.action === "NEW_MATCHED_POST") {
     const post = message.post;
     console.log("[FB Radar Background] Nhận bài viết khớp:", post);
+
+    // Lưu bài viết lên Supabase Cloud
+    SupabaseClient.savePost(post).catch(() => {});
 
     chrome.storage.local.get(null, (config) => {
       if (config.desktopNotify !== false) {
@@ -207,6 +258,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       runnerStatus: message.status,
       currentRunningGroup: message.currentGroup || null
     });
+    // Gửi heartbeat trạng thái Tab Treo lên Supabase
+    SupabaseClient.sendHeartbeat(message.status, message.currentGroup).catch(() => {});
   } else if (message.action === "CHECK_AM_I_RUNNER") {
     chrome.storage.local.get(["runnerTabId"], (stored) => {
       const isRunnerId = sender.tab && stored.runnerTabId === sender.tab.id;

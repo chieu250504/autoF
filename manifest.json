@@ -11,7 +11,8 @@
   ],
   "host_permissions": [
     "*://*.facebook.com/*",
-    "https://api.telegram.org/*"
+    "https://api.telegram.org/*",
+    "https://*.supabase.co/*"
   ],
   "action": {
     "default_popup": "popup.html",
