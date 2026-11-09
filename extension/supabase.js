@@ -171,3 +171,4 @@ const SupabaseClient = {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { SupabaseClient, SUPABASE_CONFIG };
 }
+

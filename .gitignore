@@ -1,7 +1,19 @@
+# System & Editor
 .DS_Store
 Thumbs.db
 *.log
-node_modules/
 .vscode/
 .idea/
 
+# Dependencies & Build Cache
+node_modules/
+.next/
+dist/
+out/
+build/
+.turbo/
+
+# Environment Variables
+.env*.local
+.env
+!.env.example
