@@ -6,8 +6,15 @@ export interface GroupConfig {
   reloadMinutes?: number;
 }
 
-export interface RadarConfig {
+export interface UserAccount {
   id: string;
+  username: string;
+  displayName: string;
+}
+
+export interface RadarConfig {
+  account_id?: string;
+  id?: string;
   enabled: boolean;
   keywords: string[];
   groups: GroupConfig[];
@@ -31,5 +38,6 @@ export interface RadarPost {
   post_time?: string;
   post_timestamp: number;
   detected_at: string;
+  account_ids?: string[];
+  matched_details?: Record<string, string>;
 }
-

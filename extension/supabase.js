@@ -18,7 +18,7 @@ const SupabaseClient = {
   },
 
   /**
-   * Lưu bài viết mới phát hiện vào bảng fbradar_posts trên Supabase
+   * Lưu bài viết mới phát hiện vào bảng fbradar_posts trên Supabase kèm phân loại tài khoản
    */
   async savePost(post) {
     if (!post || !post.id) return { success: false };
@@ -33,7 +33,9 @@ const SupabaseClient = {
         post_link: post.link || "",
         post_time: post.postTime || "Vừa xong",
         post_timestamp: post.postTimestamp || Date.now(),
-        detected_at: new Date(post.timestamp || Date.now()).toISOString()
+        detected_at: new Date(post.timestamp || Date.now()).toISOString(),
+        account_ids: Array.isArray(post.accountIds) ? post.accountIds : [],
+        matched_details: post.matchedDetails || {}
       };
 
       const res = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/fbradar_posts`, {
@@ -46,7 +48,7 @@ const SupabaseClient = {
       });
 
       if (res.ok) {
-        console.log("[Supabase] Đã lưu bài viết lên cloud thành công:", post.id);
+        console.log("[Supabase] Đã lưu bài viết lên cloud thành công:", post.id, "cho tài khoản:", payload.account_ids);
         return { success: true };
       } else {
         const errText = await res.text();
@@ -116,6 +118,125 @@ const SupabaseClient = {
     } catch (err) {
       console.warn("[Supabase] Lỗi đẩy cấu hình lên cloud:", err);
       return false;
+    }
+  },
+
+  /**
+   * Kéo và hợp nhất cấu hình từ TẤT CẢ các tài khoản đang BẬT quét:
+   * - Tự động phát hiện các nhóm trùng lặp giữa các tài khoản và gộp lại (chỉ quét 1 lần)
+   * - Gom tất cả từ khóa của các tài khoản và tạo keywordAccountMap: { [keyword]: [account_ids] }
+   * - Giúp Extension vừa tối ưu tài nguyên quét, vừa phân phối đúng bài viết cho từng tài khoản
+   */
+  async pullAggregatedRunnerConfig() {
+    try {
+      const res = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/fbradar_account_config?enabled=eq.true&select=*&_t=${Date.now()}`, {
+        headers: {
+          ...this.getHeaders(),
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          "Pragma": "no-cache"
+        }
+      });
+
+      if (!res.ok) return null;
+      const activeConfigs = await res.json();
+      if (!Array.isArray(activeConfigs) || activeConfigs.length === 0) {
+        return {
+          enabled: false,
+          groups: [],
+          allKeywords: [],
+          keywordAccountMap: {},
+          accounts: []
+        };
+      }
+
+      // Chuẩn hóa canonical URL nhóm để chống quét trùng
+      const cleanGroupUrl = (raw) => {
+        try {
+          let u = (raw || "").trim();
+          if (!u.startsWith("http")) u = "https://" + u;
+          const obj = new URL(u);
+          return (obj.origin + obj.pathname).toLowerCase().replace(/\/+$/, "");
+        } catch {
+          return (raw || "").trim().toLowerCase().replace(/\/+$/, "");
+        }
+      };
+
+      const groupMap = new Map();
+      const keywordAccountMap = {};
+      const globalKeywordsSet = new Set();
+
+      activeConfigs.forEach(acc => {
+        const accId = acc.account_id;
+        const accKeywords = Array.isArray(acc.keywords) ? acc.keywords : [];
+        const accGroups = Array.isArray(acc.groups) ? acc.groups : [];
+
+        // Đăng ký từ khóa và mapping tài khoản
+        accKeywords.forEach(kw => {
+          const cleanKw = (kw || "").trim();
+          if (!cleanKw) return;
+          globalKeywordsSet.add(cleanKw);
+
+          if (!keywordAccountMap[cleanKw]) {
+            keywordAccountMap[cleanKw] = [];
+          }
+          if (!keywordAccountMap[cleanKw].includes(accId)) {
+            keywordAccountMap[cleanKw].push(accId);
+          }
+        });
+
+        // Hợp nhất các nhóm (Group Merging)
+        accGroups.forEach(g => {
+          if (!g || g.enabled === false || !g.url) return;
+
+          const canonical = cleanGroupUrl(g.url);
+          const gSteps = parseInt(g.scrollSteps, 10) || parseInt(acc.max_scroll_steps, 10) || 10;
+          const gReload = parseFloat(g.reloadMinutes) || parseFloat(acc.reload_minutes) || 10;
+
+          if (!groupMap.has(canonical)) {
+            groupMap.set(canonical, {
+              canonicalUrl: canonical,
+              rawUrl: g.url,
+              name: g.name || "Nhóm Facebook",
+              accounts: [accId],
+              scrollSteps: gSteps,
+              reloadMinutes: gReload,
+              keywords: new Set(accKeywords)
+            });
+          } else {
+            // Nhóm đã có tài khoản khác quét -> HỢP NHẤT, KHÔNG QUÉT LẶP
+            const existing = groupMap.get(canonical);
+            if (!existing.accounts.includes(accId)) {
+              existing.accounts.push(accId);
+            }
+            // Lấy số bước cuộn lớn hơn để bắt đủ bài
+            existing.scrollSteps = Math.max(existing.scrollSteps, gSteps);
+            // Lấy chu kỳ dừng nhỏ hơn để đáp ứng cả 2 tài khoản
+            existing.reloadMinutes = Math.min(existing.reloadMinutes, gReload);
+            accKeywords.forEach(kw => existing.keywords.add(kw));
+          }
+        });
+      });
+
+      const mergedGroups = Array.from(groupMap.values()).map(mg => ({
+        url: mg.rawUrl,
+        canonicalUrl: mg.canonicalUrl,
+        name: mg.name,
+        accounts: mg.accounts,
+        scrollSteps: mg.scrollSteps,
+        reloadMinutes: mg.reloadMinutes,
+        keywords: Array.from(mg.keywords)
+      }));
+
+      return {
+        enabled: true,
+        accounts: activeConfigs.map(a => a.account_id),
+        groups: mergedGroups,
+        allKeywords: Array.from(globalKeywordsSet),
+        keywordAccountMap
+      };
+    } catch (err) {
+      console.warn("[Supabase] Lỗi hợp nhất cấu hình đa tài khoản:", err);
+      return null;
     }
   },
 

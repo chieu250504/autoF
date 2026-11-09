@@ -37,6 +37,9 @@ const KeywordMatcher = {
     const rawLower = cleanRaw.toLowerCase();
     const unaccentedContent = TextNormalizer.removeAccents(rawLower);
 
+    const matchedKeywords = [];
+    let firstSnippet = "";
+
     for (const kw of keywords) {
       if (!kw || !kw.trim()) continue;
       const cleanKw = TextNormalizer.cleanText(kw);
@@ -60,18 +63,25 @@ const KeywordMatcher = {
       }
 
       if (foundIndex !== -1) {
-        const start = Math.max(0, foundIndex - 40);
-        const end = Math.min(cleanRaw.length, foundIndex + kw.length + 80);
-        let snippet = cleanRaw.substring(start, end);
-        if (start > 0) snippet = "..." + snippet;
-        if (end < cleanRaw.length) snippet = snippet + "...";
-
-        return {
-          matched: true,
-          matchedKeyword: cleanKw,
-          snippet: snippet
-        };
+        matchedKeywords.push(cleanKw);
+        if (!firstSnippet) {
+          const start = Math.max(0, foundIndex - 40);
+          const end = Math.min(cleanRaw.length, foundIndex + kw.length + 80);
+          let snippet = cleanRaw.substring(start, end);
+          if (start > 0) snippet = "..." + snippet;
+          if (end < cleanRaw.length) snippet = snippet + "...";
+          firstSnippet = snippet;
+        }
       }
+    }
+
+    if (matchedKeywords.length > 0) {
+      return {
+        matched: true,
+        matchedKeyword: matchedKeywords[0],
+        allMatchedKeywords: matchedKeywords,
+        snippet: firstSnippet
+      };
     }
 
     return { matched: false };
@@ -436,6 +446,35 @@ const RadarEngine = {
     if (typeof SupabaseClient === "undefined") return;
 
     try {
+      // 1. Kéo cấu hình đa tài khoản đã được hợp nhất tự động
+      const aggregated = await SupabaseClient.pullAggregatedRunnerConfig();
+      if (aggregated) {
+        const wasEnabled = this.config ? this.config.enabled : false;
+        const nowEnabled = Boolean(aggregated.enabled);
+
+        this.config = {
+          ...this.config,
+          enabled: nowEnabled,
+          allKeywords: aggregated.allKeywords || [],
+          keywords: (aggregated.allKeywords && aggregated.allKeywords.length > 0) ? aggregated.allKeywords : this.config.keywords,
+          groups: aggregated.groups || [],
+          keywordAccountMap: aggregated.keywordAccountMap || {},
+          activeAccounts: aggregated.accounts || []
+        };
+
+        chrome.storage.local.set(this.config);
+
+        if (wasEnabled && !nowEnabled) {
+          console.log("%c[FB Radar Remote]%c Nhận lệnh TẮT từ Web Dashboard.", "color: #e11d48; font-weight: bold;", "color: inherit;");
+          this.pauseByRemote("Đã tắt từ Web Dashboard (Tất cả tài khoản tắt)");
+        } else if (!wasEnabled && nowEnabled && this.isRunnerTab) {
+          console.log("%c[FB Radar Remote]%c Nhận lệnh BẬT từ Web Dashboard.", "color: #10b981; font-weight: bold;", "color: inherit;");
+          this.resumeByRemote();
+        }
+        return;
+      }
+
+      // Fallback nếu chưa có cấu hình đa tài khoản
       const cloudConfig = await SupabaseClient.pullConfig();
       if (!cloudConfig) return;
 
@@ -639,7 +678,11 @@ const RadarEngine = {
   },
 
   scanVisiblePosts() {
-    if (!this.config || !this.config.keywords || this.config.keywords.length === 0) {
+    const keywordsToScan = (this.config && this.config.allKeywords && this.config.allKeywords.length > 0)
+      ? this.config.allKeywords
+      : (this.config ? this.config.keywords : []);
+
+    if (!keywordsToScan || keywordsToScan.length === 0) {
       return;
     }
 
@@ -652,12 +695,27 @@ const RadarEngine = {
         continue;
       }
 
-      const matchResult = KeywordMatcher.match(postData.text, this.config.keywords);
+      const matchResult = KeywordMatcher.match(postData.text, keywordsToScan);
       if (matchResult.matched) {
         DeduplicationEngine.add(postData.id);
 
+        // Phân loại tài khoản sở hữu từ khóa khớp
+        const matchedAccountsSet = new Set();
+        const matchedDetails = {};
+        const matchedKeywordsList = matchResult.allMatchedKeywords || [matchResult.matchedKeyword];
+
+        matchedKeywordsList.forEach(kw => {
+          const owners = (this.config && this.config.keywordAccountMap && this.config.keywordAccountMap[kw]) || [];
+          owners.forEach(accId => {
+            matchedAccountsSet.add(accId);
+            matchedDetails[accId] = kw;
+          });
+        });
+
+        const accountIds = Array.from(matchedAccountsSet);
+
         console.log(
-          `%c[FB Radar MATCHED!]%c Khớp: "${matchResult.matchedKeyword}"`,
+          `%c[FB Radar MATCHED!]%c Khớp: "${matchResult.matchedKeyword}" cho tài khoản: [${accountIds.join(', ')}]`,
           "background: #1877f2; color: #fff; font-weight: bold; padding: 2px 6px; border-radius: 4px;",
           "color: #2e7d32; font-weight: bold;"
         );
@@ -671,7 +729,9 @@ const RadarEngine = {
           groupTitle: postData.groupTitle,
           postTime: postData.postTime || "Vừa xong",
           postTimestamp: postData.postTimestamp || Date.now(),
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          accountIds: accountIds,
+          matchedDetails: matchedDetails
         });
       }
     }

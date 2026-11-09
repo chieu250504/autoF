@@ -1,71 +1,78 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { PinLockModal } from './components/PinLockModal';
+import { LoginModal } from './components/LoginModal';
 import { Header } from './components/Header';
 import { KeywordsCard } from './components/KeywordsCard';
 import { GroupsCard } from './components/GroupsCard';
 import { GlobalSettingsCard } from './components/GlobalSettingsCard';
 import { PostsTable } from './components/PostsTable';
 import {
-  hasStoredPin,
-  clearStoredPin,
+  getStoredUser,
+  clearStoredSession,
   fetchConfig,
   updateConfig,
   fetchPosts,
   deletePost,
 } from './lib/api';
 import { supabase } from './lib/supabase';
-import { RadarConfig, RadarPost, GroupConfig } from './types';
+import { RadarConfig, RadarPost, GroupConfig, UserAccount } from './types';
 
 export const App: React.FC = () => {
-  const [isLocked, setIsLocked] = useState(!hasStoredPin());
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(getStoredUser());
   const [config, setConfig] = useState<RadarConfig | null>(null);
   const [posts, setPosts] = useState<RadarPost[]>([]);
   const [loadingConfig, setLoadingConfig] = useState(false);
   const [loadingPosts, setLoadingPosts] = useState(false);
 
-  // Tải cấu hình từ Backend API
+  // Tải cấu hình tài khoản từ Backend API
   const loadConfig = useCallback(async () => {
+    if (!currentUser) return;
     setLoadingConfig(true);
     const data = await fetchConfig();
     if (data) {
       setConfig(data);
     }
     setLoadingConfig(false);
-  }, []);
+  }, [currentUser]);
 
-  // Tải danh sách bài viết từ Backend API
+  // Tải danh sách bài viết thuộc về tài khoản này
   const loadPosts = useCallback(async () => {
+    if (!currentUser) return;
     setLoadingPosts(true);
     const res = await fetchPosts({ limit: 150 });
     setPosts(res.data);
     setLoadingPosts(false);
-  }, []);
+  }, [currentUser]);
 
-  // Khởi tạo khi mở khóa
+  // Khởi tạo khi đăng nhập
   useEffect(() => {
-    if (!isLocked) {
+    if (currentUser) {
       loadConfig();
       loadPosts();
     }
-  }, [isLocked, loadConfig, loadPosts]);
+  }, [currentUser, loadConfig, loadPosts]);
 
-  // Thiết lập Supabase Realtime Lắng Nghe Bài Viết Mới & Nhịp Tim Tab Treo
+  // Lắng nghe Supabase Realtime
   useEffect(() => {
-    if (isLocked) return;
+    if (!currentUser) return;
 
     // Realtime channel cho bài viết (fbradar_posts)
     const postsChannel = supabase
-      .channel('public:fbradar_posts')
+      .channel(`public:fbradar_posts:${currentUser.id}`)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'fbradar_posts' },
         (payload) => {
           const newPost = payload.new as RadarPost;
-          setPosts((prev) => {
-            // Tránh trùng lặp
-            if (prev.some((p) => p.id === newPost.id)) return prev;
-            return [newPost, ...prev];
-          });
+          // Kiểm tra xem bài viết có gắn tài khoản này không (hoặc chưa phân chia)
+          const targetAccounts = Array.isArray(newPost.account_ids) ? newPost.account_ids : [];
+          const isForMe = targetAccounts.length === 0 || targetAccounts.includes(currentUser.id);
+
+          if (isForMe) {
+            setPosts((prev) => {
+              if (prev.some((p) => p.id === newPost.id)) return prev;
+              return [newPost, ...prev];
+            });
+          }
         }
       )
       .on(
@@ -76,73 +83,77 @@ export const App: React.FC = () => {
           if (deletedId) {
             setPosts((prev) => prev.filter((p) => p.id !== deletedId));
           } else {
-            // Nếu xóa hết
             loadPosts();
           }
         }
       )
       .subscribe();
 
-    // Realtime channel cho cấu hình & nhịp tim (fbradar_config)
-    const configChannel = supabase
-      .channel('public:fbradar_config')
+    // Realtime channel cho nhịp tim Tab Treo (fbradar_config)
+    const runnerChannel = supabase
+      .channel('public:fbradar_runner_status')
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'fbradar_config' },
         (payload) => {
-          const updated = payload.new as RadarConfig;
-          setConfig((prev) => (prev ? { ...prev, ...updated } : updated));
+          const updated = payload.new as any;
+          setConfig((prev) => (prev ? {
+            ...prev,
+            runner_status: updated.runner_status,
+            current_running_group: updated.current_running_group,
+            last_heartbeat: updated.last_heartbeat,
+          } : prev));
         }
       )
       .subscribe();
 
-    // Polling nhẹ mỗi 10 giây để tính nhịp tim Online/Offline chính xác
+    // Polling nhẹ mỗi 10 giây để nhịp tim Online/Offline luôn chính xác
     const heartbeatTimer = setInterval(() => {
       loadConfig();
     }, 10000);
 
     return () => {
       supabase.removeChannel(postsChannel);
-      supabase.removeChannel(configChannel);
+      supabase.removeChannel(runnerChannel);
       clearInterval(heartbeatTimer);
     };
-  }, [isLocked, loadConfig, loadPosts]);
+  }, [currentUser, loadConfig, loadPosts]);
 
-  // Thao tác Bật/Tắt quét từ xa
+  // Thao tác Bật/Tắt quét của tài khoản
   const handleToggleEnabled = async (newVal: boolean) => {
     const res = await updateConfig({ enabled: newVal });
     if (res.success && res.data) {
-      setConfig(res.data);
+      setConfig((prev) => (prev ? { ...prev, enabled: newVal } : res.data!));
     } else if (res.error) {
       alert(`Lỗi: ${res.error}`);
     }
   };
 
-  // Cập nhật từ khóa
+  // Cập nhật từ khóa của tài khoản
   const handleSaveKeywords = async (newKeywords: string[]) => {
     const res = await updateConfig({ keywords: newKeywords });
     if (res.success && res.data) {
-      setConfig(res.data);
+      setConfig((prev) => (prev ? { ...prev, keywords: newKeywords } : res.data!));
     } else if (res.error) {
       alert(`Lỗi: ${res.error}`);
     }
   };
 
-  // Cập nhật danh sách nhóm
+  // Cập nhật danh sách nhóm của tài khoản
   const handleSaveGroups = async (newGroups: GroupConfig[]) => {
     const res = await updateConfig({ groups: newGroups });
     if (res.success && res.data) {
-      setConfig(res.data);
+      setConfig((prev) => (prev ? { ...prev, groups: newGroups } : res.data!));
     } else if (res.error) {
       alert(`Lỗi: ${res.error}`);
     }
   };
 
-  // Cập nhật cài đặt toàn cục
+  // Cập nhật cài đặt toàn cục của tài khoản
   const handleSaveGlobalSettings = async (updates: Partial<RadarConfig>) => {
     const res = await updateConfig(updates);
     if (res.success && res.data) {
-      setConfig(res.data);
+      setConfig((prev) => (prev ? { ...prev, ...updates } : res.data!));
     } else if (res.error) {
       alert(`Lỗi: ${res.error}`);
     }
@@ -154,36 +165,39 @@ export const App: React.FC = () => {
     if (ok) {
       setPosts((prev) => prev.filter((p) => p.id !== id));
     } else {
-      alert('Không thể xóa bài viết. Kiểm tra lại mã PIN hoặc kết nối.');
+      alert('Không thể xóa bài viết. Kiểm tra lại kết nối.');
     }
   };
 
-  // Xóa tất cả bài viết
+  // Xóa tất cả bài viết của tài khoản
   const handleDeleteAllPosts = async () => {
     const ok = await deletePost(undefined, true);
     if (ok) {
       setPosts([]);
     } else {
-      alert('Không thể xóa bài viết. Kiểm tra lại mã PIN hoặc kết nối.');
+      alert('Không thể xóa bài viết. Kiểm tra lại kết nối.');
     }
   };
 
-  // Khóa màn hình
-  const handleLock = () => {
-    clearStoredPin();
-    setIsLocked(true);
+  // Đăng xuất
+  const handleLogout = () => {
+    clearStoredSession();
+    setCurrentUser(null);
+    setConfig(null);
+    setPosts([]);
   };
 
-  if (isLocked) {
-    return <PinLockModal onUnlocked={() => setIsLocked(false)} />;
+  if (!currentUser) {
+    return <LoginModal onLoggedIn={(user) => setCurrentUser(user)} />;
   }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       <Header
+        currentUser={currentUser}
         config={config}
         onToggleEnabled={handleToggleEnabled}
-        onLock={handleLock}
+        onLogout={handleLogout}
         loading={loadingConfig}
       />
 
@@ -227,11 +241,10 @@ export const App: React.FC = () => {
       </main>
 
       <footer className="py-4 border-t border-slate-900 text-center text-xs text-slate-500">
-        FB Group Keyword Radar • Kiến trúc 3 thư mục độc lập (Extension, Frontend, Backend)
+        FB Group Keyword Radar • Chế độ Đa Tài Khoản Thông Minh (Multi-Tenant Runner)
       </footer>
     </div>
   );
 };
 
 export default App;
-

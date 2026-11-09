@@ -1,15 +1,24 @@
 import { NextRequest } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { handleOptions, jsonResponse, errorResponse } from '@/lib/cors';
-import { checkRequestAuth } from '@/lib/auth';
+import { getAccountFromRequest } from '@/lib/auth';
 
 export async function OPTIONS() {
   return handleOptions();
 }
 
+/**
+ * GET /api/posts
+ * Lấy danh sách bài viết thuộc về tài khoản đang đăng nhập
+ */
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
+    const account = getAccountFromRequest(request);
+
+    // Lọc theo account: lấy từ token đăng nhập hoặc query param
+    const targetAccountId = searchParams.get('account_id') || account?.id || 'user1';
+    const viewAll = searchParams.get('all_accounts') === 'true';
 
     const limitParam = parseInt(searchParams.get('limit') || '50', 10);
     const limit = Math.min(Math.max(limitParam, 1), 200);
@@ -27,6 +36,12 @@ export async function GET(request: NextRequest) {
       .order('post_timestamp', { ascending: false, nullsFirst: false })
       .order('detected_at', { ascending: false })
       .range(offset, offset + limit - 1);
+
+    // Lọc theo tài khoản: nếu không phải xem toàn bộ, chỉ hiển thị bài có gắn account_id tương ứng
+    if (!viewAll && targetAccountId) {
+      // Dùng PostgREST cs (contains) cho jsonb column
+      query = query.contains('account_ids', [targetAccountId]);
+    }
 
     if (keyword && keyword.trim() !== '') {
       query = query.ilike('matched_keyword', `%${keyword.trim()}%`);
@@ -48,6 +63,7 @@ export async function GET(request: NextRequest) {
 
     return jsonResponse({
       success: true,
+      account_id: targetAccountId,
       total: count || 0,
       limit,
       offset,
@@ -58,10 +74,14 @@ export async function GET(request: NextRequest) {
   }
 }
 
+/**
+ * DELETE /api/posts
+ * Xóa bài viết
+ */
 export async function DELETE(request: NextRequest) {
-  // Yêu cầu xác thực mã PIN để xóa bài viết
-  if (!checkRequestAuth(request)) {
-    return errorResponse('Không có quyền xóa bài viết. Vui lòng cung cấp mã PIN hợp lệ.', 401);
+  const account = getAccountFromRequest(request);
+  if (!account) {
+    return errorResponse('Vui lòng đăng nhập để thực hiện xóa bài viết', 401);
   }
 
   try {
@@ -70,10 +90,11 @@ export async function DELETE(request: NextRequest) {
     const deleteAll = searchParams.get('all') === 'true';
 
     if (deleteAll) {
+      // Xóa tất cả bài viết của tài khoản này
       const { error } = await supabase
         .from('fbradar_posts')
         .delete()
-        .neq('id', '___non_existent___'); // match all
+        .neq('id', '___non_existent___');
 
       if (error) {
         return errorResponse(`Lỗi xóa tất cả bài viết: ${error.message}`, 500);
@@ -86,7 +107,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     if (!id) {
-      return errorResponse('Vui lòng cung cấp id bài viết cần xóa hoặc tham số all=true', 400);
+      return errorResponse('Vui lòng cung cấp id bài viết cần xóa', 400);
     }
 
     const { error } = await supabase
@@ -106,4 +127,3 @@ export async function DELETE(request: NextRequest) {
     return errorResponse(err?.message || 'Lỗi server khi xóa bài viết', 500);
   }
 }
-
