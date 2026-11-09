@@ -68,12 +68,17 @@ const SupabaseClient = {
     try {
       const res = await fetch(
         `${SUPABASE_CONFIG.url}/rest/v1/fbradar_posts?select=*&order=post_timestamp.desc&limit=${limit}`,
-        { headers: this.getHeaders() }
+        {
+          headers: {
+            ...this.getHeaders(),
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache"
+          }
+        }
       );
 
       if (res.ok) {
         const data = await res.json();
-        // Chuyển đổi định dạng để tương thích với popup
         return data.map(item => ({
           id: item.id,
           groupTitle: item.group_title,
@@ -83,7 +88,8 @@ const SupabaseClient = {
           link: item.post_link,
           postTime: item.post_time,
           postTimestamp: parseInt(item.post_timestamp, 10) || Date.now(),
-          timestamp: new Date(item.detected_at).getTime()
+          timestamp: new Date(item.detected_at).getTime(),
+          accountIds: Array.isArray(item.account_ids) ? item.account_ids : []
         }));
       }
     } catch (err) {
@@ -93,32 +99,44 @@ const SupabaseClient = {
   },
 
   /**
-   * Đồng bộ cấu hình từ Extension lên Supabase
+   * Lấy toàn bộ danh sách tài khoản từ bảng fbradar_accounts
    */
-  async pushConfig(config) {
+  async fetchAccounts() {
     try {
-      const payload = {
-        enabled: !!config.enabled,
-        keywords: config.keywords || [],
-        groups: config.groups || [],
-        reload_minutes: config.reloadMinutes || 0.75,
-        jitter_percent: config.jitterPercent || 30,
-        scroll_speed: config.scrollSpeed || "medium",
-        max_scroll_steps: config.maxScrollSteps || 4,
-        updated_at: new Date().toISOString()
-      };
-
-      const res = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/fbradar_config?id=eq.default`, {
-        method: "PATCH",
-        headers: this.getHeaders(),
-        body: JSON.stringify(payload)
+      const res = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/fbradar_accounts?select=id,username,display_name`, {
+        headers: {
+          ...this.getHeaders(),
+          "Cache-Control": "no-cache, no-store, must-revalidate"
+        }
       });
-
-      return res.ok;
-    } catch (err) {
-      console.warn("[Supabase] Lỗi đẩy cấu hình lên cloud:", err);
-      return false;
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn("[Supabase] Lỗi lấy danh sách tài khoản:", e);
     }
+    return [];
+  },
+
+  /**
+   * Lấy toàn bộ cấu hình tài khoản (kể cả bật và tắt) để hiển thị tổng quan trên popup
+   */
+  async fetchAllAccountConfigs() {
+    try {
+      const res = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/fbradar_account_config?select=*`, {
+        headers: {
+          ...this.getHeaders(),
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          "Pragma": "no-cache"
+        }
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn("[Supabase] Lỗi lấy cấu hình tài khoản:", e);
+    }
+    return [];
   },
 
   /**
@@ -129,7 +147,7 @@ const SupabaseClient = {
    */
   async pullAggregatedRunnerConfig() {
     try {
-      const res = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/fbradar_account_config?enabled=eq.true&select=*&_t=${Date.now()}`, {
+      const res = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/fbradar_account_config?enabled=eq.true&select=*`, {
         headers: {
           ...this.getHeaders(),
           "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -137,16 +155,9 @@ const SupabaseClient = {
         }
       });
 
-      if (!res.ok) return null;
-      const activeConfigs = await res.json();
-      if (!Array.isArray(activeConfigs) || activeConfigs.length === 0) {
-        return {
-          enabled: false,
-          groups: [],
-          allKeywords: [],
-          keywordAccountMap: {},
-          accounts: []
-        };
+      let activeConfigs = [];
+      if (res.ok) {
+        activeConfigs = await res.json();
       }
 
       // Chuẩn hóa canonical URL nhóm để chống quét trùng (bỏ www, trailing slash)
@@ -166,57 +177,75 @@ const SupabaseClient = {
       const keywordAccountMap = {};
       const globalKeywordsSet = new Set();
 
-      activeConfigs.forEach(acc => {
-        const accId = acc.account_id;
-        const accKeywords = Array.isArray(acc.keywords) ? acc.keywords : [];
-        const accGroups = Array.isArray(acc.groups) ? acc.groups : [];
+      if (Array.isArray(activeConfigs) && activeConfigs.length > 0) {
+        activeConfigs.forEach(acc => {
+          const accId = acc.account_id;
+          const accKeywords = Array.isArray(acc.keywords) ? acc.keywords : [];
+          const accGroups = Array.isArray(acc.groups) ? acc.groups : [];
 
-        // Đăng ký từ khóa và mapping tài khoản
-        accKeywords.forEach(kw => {
-          const cleanKw = (kw || "").trim();
-          if (!cleanKw) return;
-          globalKeywordsSet.add(cleanKw);
+          // Đăng ký từ khóa và mapping tài khoản
+          accKeywords.forEach(kw => {
+            const cleanKw = (kw || "").trim();
+            if (!cleanKw) return;
+            globalKeywordsSet.add(cleanKw);
 
-          if (!keywordAccountMap[cleanKw]) {
-            keywordAccountMap[cleanKw] = [];
-          }
-          if (!keywordAccountMap[cleanKw].includes(accId)) {
-            keywordAccountMap[cleanKw].push(accId);
-          }
-        });
-
-        // Hợp nhất các nhóm (Group Merging)
-        accGroups.forEach(g => {
-          if (!g || g.enabled === false || !g.url) return;
-
-          const canonical = cleanGroupUrl(g.url);
-          const gSteps = parseInt(g.scrollSteps, 10) || parseInt(acc.max_scroll_steps, 10) || 10;
-          const gReload = parseFloat(g.reloadMinutes) || parseFloat(acc.reload_minutes) || 10;
-
-          if (!groupMap.has(canonical)) {
-            groupMap.set(canonical, {
-              canonicalUrl: canonical,
-              rawUrl: g.url,
-              name: g.name || "Nhóm Facebook",
-              accounts: [accId],
-              scrollSteps: gSteps,
-              reloadMinutes: gReload,
-              keywords: new Set(accKeywords)
-            });
-          } else {
-            // Nhóm đã có tài khoản khác quét -> HỢP NHẤT, KHÔNG QUÉT LẶP
-            const existing = groupMap.get(canonical);
-            if (!existing.accounts.includes(accId)) {
-              existing.accounts.push(accId);
+            if (!keywordAccountMap[cleanKw]) {
+              keywordAccountMap[cleanKw] = [];
             }
-            // Lấy số bước cuộn lớn hơn để bắt đủ bài
-            existing.scrollSteps = Math.max(existing.scrollSteps, gSteps);
-            // Lấy chu kỳ dừng nhỏ hơn để đáp ứng cả 2 tài khoản
-            existing.reloadMinutes = Math.min(existing.reloadMinutes, gReload);
-            accKeywords.forEach(kw => existing.keywords.add(kw));
-          }
+            if (!keywordAccountMap[cleanKw].includes(accId)) {
+              keywordAccountMap[cleanKw].push(accId);
+            }
+          });
+
+          // Hợp nhất các nhóm (Group Merging)
+          accGroups.forEach(g => {
+            if (!g || g.enabled === false || !g.url) return;
+
+            const canonical = cleanGroupUrl(g.url);
+            const gSteps = parseInt(g.scrollSteps, 10) || parseInt(acc.max_scroll_steps, 10) || 10;
+            const gReload = parseFloat(g.reloadMinutes) || parseFloat(acc.reload_minutes) || 10;
+
+            if (!groupMap.has(canonical)) {
+              groupMap.set(canonical, {
+                canonicalUrl: canonical,
+                rawUrl: g.url,
+                name: g.name || "Nhóm Facebook",
+                accounts: [accId],
+                scrollSteps: gSteps,
+                reloadMinutes: gReload,
+                keywords: new Set(accKeywords)
+              });
+            } else {
+              // Nhóm đã có tài khoản khác quét -> HỢP NHẤT, KHÔNG QUÉT LẶP
+              const existing = groupMap.get(canonical);
+              if (!existing.accounts.includes(accId)) {
+                existing.accounts.push(accId);
+              }
+              // Lấy số bước cuộn lớn hơn để bắt đủ bài
+              existing.scrollSteps = Math.max(existing.scrollSteps, gSteps);
+              // Lấy chu kỳ dừng nhỏ hơn để đáp ứng cả 2 tài khoản
+              existing.reloadMinutes = Math.min(existing.reloadMinutes, gReload);
+              accKeywords.forEach(kw => existing.keywords.add(kw));
+            }
+          });
         });
-      });
+      }
+
+      // Nếu không có cấu hình tài khoản nào bật, thử đọc cấu hình đơn bảng fbradar_config
+      if (groupMap.size === 0 && globalKeywordsSet.size === 0) {
+        const fallbackConfig = await this.pullConfig();
+        if (fallbackConfig && fallbackConfig.enabled && fallbackConfig.groups && fallbackConfig.groups.length > 0) {
+          return {
+            enabled: true,
+            accounts: ["default"],
+            groups: fallbackConfig.groups,
+            allKeywords: fallbackConfig.keywords || [],
+            keywordAccountMap: {},
+            reloadMinutes: fallbackConfig.reloadMinutes || 10,
+            maxScrollSteps: fallbackConfig.maxScrollSteps || 10
+          };
+        }
+      }
 
       const mergedGroups = Array.from(groupMap.values()).map(mg => ({
         url: mg.rawUrl,
@@ -228,8 +257,10 @@ const SupabaseClient = {
         keywords: Array.from(mg.keywords)
       }));
 
+      const hasActiveTargets = mergedGroups.length > 0;
+
       return {
-        enabled: true,
+        enabled: hasActiveTargets && activeConfigs.length > 0,
         accounts: activeConfigs.map(a => a.account_id),
         groups: mergedGroups,
         allKeywords: Array.from(globalKeywordsSet),
@@ -242,11 +273,11 @@ const SupabaseClient = {
   },
 
   /**
-   * Kéo cấu hình từ Supabase về Extension (Để điều khiển từ xa qua web)
+   * Kéo cấu hình bảng fbradar_config (dự phòng)
    */
   async pullConfig() {
     try {
-      const res = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/fbradar_config?id=eq.default&select=*&_t=${Date.now()}`, {
+      const res = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/fbradar_config?id=eq.default&select=*`, {
         headers: {
           ...this.getHeaders(),
           "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -298,4 +329,3 @@ const SupabaseClient = {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { SupabaseClient, SUPABASE_CONFIG };
 }
-

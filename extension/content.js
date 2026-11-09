@@ -456,7 +456,7 @@ const RadarEngine = {
           ...this.config,
           enabled: nowEnabled,
           allKeywords: aggregated.allKeywords || [],
-          keywords: (aggregated.allKeywords && aggregated.allKeywords.length > 0) ? aggregated.allKeywords : this.config.keywords,
+          keywords: aggregated.allKeywords || [],
           groups: aggregated.groups || [],
           keywordAccountMap: aggregated.keywordAccountMap || {},
           activeAccounts: aggregated.accounts || []
@@ -572,12 +572,13 @@ const RadarEngine = {
       chrome.storage.local.get(null, stored => {
         this.config = {
           enabled: false,
-          keywords: ["tuyển dụng", "báo giá", "cần tìm"],
+          keywords: [],
+          allKeywords: [],
           groups: [],
-          reloadMinutes: 0.75, // Tạm thời để 0.75 phút (~45s, dao động 31s - 59s) để test luân phiên
-          jitterPercent: 30,
+          reloadMinutes: 10,
+          jitterPercent: 20,
           scrollSpeed: "medium",
-          maxScrollSteps: 4,
+          maxScrollSteps: 8,
           ...stored
         };
         resolve(this.config);

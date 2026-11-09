@@ -1,26 +1,25 @@
-// Default configuration
-const DEFAULT_CONFIG = {
+/**
+ * FB Group Keyword Radar - Popup Script
+ * Hiển thị tổng quan thời gian thực từ Supabase Database, loại bỏ form nhập cục bộ
+ */
+
+// State
+let dbOverviewData = {
   enabled: false,
-  keywords: ["tuyển dụng", "báo giá", "cần tìm"],
-  groups: [], // Array of objects: { url: string, enabled: boolean, name?: string }
-  reloadMinutes: 0.75, // Tạm thời để 0.75 phút (~45s, dao động 31s - 59s) để test luân phiên nhanh
-  jitterPercent: 30,
-  scrollSpeed: "medium",
-  maxScrollSteps: 4,
-  soundEnabled: true,
-  desktopNotify: true,
-  tgBotToken: "",
-  tgChatId: "",
-  logs: [],
+  accounts: [],
+  allAccounts: [],
+  groups: [],
+  allKeywords: [],
+  keywordAccountMap: {},
+  posts: [],
   runnerStatus: "Chưa chạy",
   currentRunningGroup: null
 };
 
-let currentConfig = { ...DEFAULT_CONFIG };
-
 // DOM Elements
 const masterToggle = document.getElementById("masterToggle");
 const statusText = document.getElementById("statusText");
+const refreshDbBtn = document.getElementById("refreshDbBtn");
 const runnerDot = document.getElementById("runnerDot");
 const runnerStatusText = document.getElementById("runnerStatusText");
 const openRunnerBtn = document.getElementById("openRunnerBtn");
@@ -28,15 +27,15 @@ const openRunnerBtn = document.getElementById("openRunnerBtn");
 const tabButtons = document.querySelectorAll(".tab-btn");
 const tabPanes = document.querySelectorAll(".tab-pane");
 
-const keywordInput = document.getElementById("keywordInput");
-const addKeywordBtn = document.getElementById("addKeywordBtn");
-const keywordTagsContainer = document.getElementById("keywordTags");
-const keywordCount = document.getElementById("keywordCount");
+const statAccountsCount = document.getElementById("statAccountsCount");
+const statGroupsCount = document.getElementById("statGroupsCount");
+const statKeywordsCount = document.getElementById("statKeywordsCount");
 
-const groupInput = document.getElementById("groupInput");
-const addGroupBtn = document.getElementById("addGroupBtn");
-const groupListContainer = document.getElementById("groupList");
-const groupCount = document.getElementById("groupCount");
+const groupOverviewCount = document.getElementById("groupOverviewCount");
+const dbGroupList = document.getElementById("dbGroupList");
+
+const keywordOverviewCount = document.getElementById("keywordOverviewCount");
+const dbKeywordTags = document.getElementById("dbKeywordTags");
 
 const reloadMinutesInput = document.getElementById("reloadMinutes");
 const jitterPercentInput = document.getElementById("jitterPercent");
@@ -51,22 +50,23 @@ const tgBotTokenInput = document.getElementById("tgBotToken");
 const tgChatIdInput = document.getElementById("tgChatId");
 const testTelegramBtn = document.getElementById("testTelegramBtn");
 const tgTestResult = document.getElementById("tgTestResult");
+const saveAlertsBtn = document.getElementById("saveAlertsBtn");
 
 const logsContainer = document.getElementById("logsList");
-const clearLogsBtn = document.getElementById("clearLogsBtn");
+const refreshPostsBtn = document.getElementById("refreshPostsBtn");
 const exportExcelBtn = document.getElementById("exportExcelBtn");
-const saveBtn = document.getElementById("saveBtn");
 const saveToast = document.getElementById("saveToast");
 
-// Initialize
+// Khởi tạo
 document.addEventListener("DOMContentLoaded", async () => {
   setupTabs();
   setupEventListeners();
-  await loadConfig();
+  loadLocalAlertSettings();
+  await refreshDatabaseOverview(false);
   listenToStorageChanges();
 });
 
-// Setup Tab Switching
+// Chuyển Tab
 function setupTabs() {
   tabButtons.forEach(btn => {
     btn.addEventListener("click", () => {
@@ -80,84 +80,346 @@ function setupTabs() {
   });
 }
 
-// Setup Event Listeners
+// Cài đặt Event Listeners
 function setupEventListeners() {
-  masterToggle.addEventListener("change", () => {
-    currentConfig.enabled = masterToggle.checked;
-    updateStatusUI();
-    saveConfig(true);
+  // Nút Làm mới dữ liệu từ Database
+  refreshDbBtn.addEventListener("click", async () => {
+    refreshDbBtn.classList.add("spinning");
+    await refreshDatabaseOverview(true);
+    setTimeout(() => {
+      refreshDbBtn.classList.remove("spinning");
+    }, 600);
   });
 
-  // Mở / Focus vào Tab Treo
-  openRunnerBtn.addEventListener("click", () => {
+  // Nút Bắt đầu / Mở Tab Treo (gọi lại API và mở tab theo nhóm mới nhất)
+  openRunnerBtn.addEventListener("click", async () => {
+    showToast("Đang kết nối Database và khởi động Tab Treo...");
     chrome.runtime.sendMessage({ action: "OPEN_OR_FOCUS_RUNNER_TAB" }).catch(() => {});
+    // Làm mới hiển thị
+    setTimeout(() => {
+      refreshDatabaseOverview(false);
+    }, 800);
   });
 
-  addKeywordBtn.addEventListener("click", addKeyword);
-  keywordInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      addKeyword();
+  // Master Toggle: Bật/Tắt quét toàn cục trên database
+  masterToggle.addEventListener("change", async () => {
+    const isChecked = masterToggle.checked;
+    updateStatusUI(isChecked);
+    
+    // Gửi cập nhật trực tiếp lên Supabase
+    try {
+      await fetch(`${SUPABASE_CONFIG.url}/rest/v1/fbradar_config?id=eq.default`, {
+        method: "PATCH",
+        headers: SupabaseClient.getHeaders(),
+        body: JSON.stringify({
+          enabled: isChecked,
+          updated_at: new Date().toISOString()
+        })
+      });
+
+      // Kéo lại cấu hình mới nhất
+      await refreshDatabaseOverview(false);
+      showToast(isChecked ? "Đã bật quét!" : "Đã tắt quét!");
+    } catch (err) {
+      console.warn("Lỗi cập nhật toggle:", err);
     }
   });
 
-  addGroupBtn.addEventListener("click", addGroup);
-  groupInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      addGroup();
-    }
-  });
+  // Tab Hành vi: Preview thời gian
+  if (reloadMinutesInput && jitterPercentInput) {
+    reloadMinutesInput.addEventListener("input", updateTimingPreview);
+    jitterPercentInput.addEventListener("input", () => {
+      jitterDisplay.textContent = `±${jitterPercentInput.value}%`;
+      updateTimingPreview();
+    });
+  }
 
-  reloadMinutesInput.addEventListener("input", updateTimingPreview);
-  jitterPercentInput.addEventListener("input", () => {
-    jitterDisplay.textContent = `±${jitterPercentInput.value}%`;
-    updateTimingPreview();
-  });
-
+  // Tab Thông báo: Test Telegram & Lưu
   testTelegramBtn.addEventListener("click", testTelegram);
+  saveAlertsBtn.addEventListener("click", saveLocalAlertSettings);
 
-  // Xuất Excel
-  exportExcelBtn.addEventListener("click", exportToExcel);
-
-  clearLogsBtn.addEventListener("click", () => {
-    if (confirm("Bạn có chắc chắn muốn xóa toàn bộ lịch sử bài viết?")) {
-      currentConfig.logs = [];
-      renderLogs();
-      chrome.storage.local.set({ logs: [] });
-    }
+  // Tab Lịch sử: Nút tải lại bài viết & Xuất CSV
+  refreshPostsBtn.addEventListener("click", async () => {
+    refreshPostsBtn.disabled = true;
+    refreshPostsBtn.textContent = "Đang tải...";
+    await loadRecentPosts();
+    refreshPostsBtn.disabled = false;
+    refreshPostsBtn.textContent = "🔄 Tải lại";
+    showToast("Đã tải lại danh sách bài viết từ Database!");
   });
 
-  saveBtn.addEventListener("click", () => saveConfig(false));
+  exportExcelBtn.addEventListener("click", exportToExcel);
 }
 
-// Listen for storage changes across tabs to update popup UI in real-time
+// Kéo và hiển thị dữ liệu tổng quan mới nhất từ Supabase Database
+async function refreshDatabaseOverview(showNotification = false) {
+  try {
+    // 1. Kéo cấu hình hợp nhất đang hoạt động
+    const aggregated = await SupabaseClient.pullAggregatedRunnerConfig();
+    // 2. Kéo danh sách tất cả tài khoản
+    const allAccounts = await SupabaseClient.fetchAllAccountConfigs();
+    // 3. Đọc trạng thái runnerTab hiện tại từ local storage
+    const localStored = await new Promise(r => chrome.storage.local.get(["runnerStatus", "currentRunningGroup"], r));
+
+    dbOverviewData = {
+      enabled: aggregated ? Boolean(aggregated.enabled) : false,
+      accounts: aggregated ? (aggregated.accounts || []) : [],
+      allAccounts: allAccounts || [],
+      groups: aggregated ? (aggregated.groups || []) : [],
+      allKeywords: aggregated ? (aggregated.allKeywords || []) : [],
+      keywordAccountMap: aggregated ? (aggregated.keywordAccountMap || {}) : {},
+      runnerStatus: localStored.runnerStatus || "Chưa chạy",
+      currentRunningGroup: localStored.currentRunningGroup || null
+    };
+
+    // Render giao diện tổng quan
+    renderOverviewUI();
+    // Tải bài viết
+    await loadRecentPosts();
+
+    if (showNotification) {
+      showToast("Đã làm mới dữ liệu từ Database thành công!");
+    }
+  } catch (err) {
+    console.error("[FB Radar Popup] Lỗi nạp dữ liệu từ Database:", err);
+    dbGroupList.innerHTML = `<div class="empty-state" style="color: #dc2626;">Lỗi tải dữ liệu: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+// Render dữ liệu tổng quan lên HTML
+function renderOverviewUI() {
+  const isEnabled = dbOverviewData.enabled;
+  masterToggle.checked = isEnabled;
+  updateStatusUI(isEnabled);
+  updateRunnerBarUI();
+
+  // 1. Thống kê số lượng
+  const activeAccountsCount = dbOverviewData.accounts.length;
+  statAccountsCount.textContent = `${activeAccountsCount} TK`;
+  statGroupsCount.textContent = String(dbOverviewData.groups.length);
+  statKeywordsCount.textContent = String(dbOverviewData.allKeywords.length);
+
+  groupOverviewCount.textContent = `${dbOverviewData.groups.length} nhóm`;
+  keywordOverviewCount.textContent = `${dbOverviewData.allKeywords.length} từ khóa`;
+
+  // 2. Render danh sách Hội Nhóm từ Database
+  dbGroupList.innerHTML = "";
+  if (dbOverviewData.groups.length === 0) {
+    dbGroupList.innerHTML = `
+      <div class="empty-state">
+        Chưa có nhóm nào được bật từ các tài khoản trên Web Dashboard.<br>
+        <span style="font-size: 10px; color: #94a3b8;">Vào Web Dashboard (localhost:3000) để thêm nhóm hoặc bật quét!</span>
+      </div>`;
+  } else {
+    dbOverviewData.groups.forEach((g) => {
+      const isCurrentRunning = dbOverviewData.currentRunningGroup && 
+        (dbOverviewData.currentRunningGroup.toLowerCase().includes(g.canonicalUrl || g.url.toLowerCase()));
+
+      const card = document.createElement("div");
+      card.className = `group-card-item ${isCurrentRunning ? 'is-running' : ''}`;
+
+      // Tạo nhãn tài khoản
+      const accBadgesHtml = (g.accounts || []).map(accId => {
+        const cls = accId === 'user1' ? 'user1' : (accId === 'user2' ? 'user2' : '');
+        return `<span class="account-badge ${cls}">${escapeHtml(accId)}</span>`;
+      }).join('');
+
+      card.innerHTML = `
+        <div class="group-card-top">
+          <div class="group-title-row">
+            <span class="group-name-text" title="${escapeHtml(g.name || g.url)}">
+              ${isCurrentRunning ? '🟢 ' : ''}${escapeHtml(g.name || g.url)}
+            </span>
+          </div>
+          <a href="${escapeHtml(g.url)}" target="_blank" class="group-link-icon" title="Mở nhóm trên Facebook">
+            🔗 Mở nhóm
+          </a>
+        </div>
+        <div class="group-meta-row">
+          <div class="account-badge-group">
+            ${accBadgesHtml}
+          </div>
+          <span class="group-params-pill">
+            ⚡ ${g.scrollSteps || 8} cuộn | ⏱️ ${g.reloadMinutes || 10} phút
+          </span>
+        </div>
+      `;
+      dbGroupList.appendChild(card);
+    });
+  }
+
+  // 3. Render danh sách Từ Khóa từ Database
+  dbKeywordTags.innerHTML = "";
+  if (dbOverviewData.allKeywords.length === 0) {
+    dbKeywordTags.innerHTML = `<div class="empty-state" style="padding: 10px 0;">Chưa có từ khóa nào được thiết lập trên database.</div>`;
+  } else {
+    dbOverviewData.allKeywords.forEach((kw) => {
+      const owners = dbOverviewData.keywordAccountMap[kw] || [];
+      const tag = document.createElement("span");
+      tag.className = "tag-item";
+      
+      const ownersText = owners.length > 0 ? owners.join(', ') : 'Tất cả';
+      tag.innerHTML = `
+        <span>#${escapeHtml(kw)}</span>
+        <span class="tag-acc">${escapeHtml(ownersText)}</span>
+      `;
+      dbKeywordTags.appendChild(tag);
+    });
+  }
+}
+
+// Cập nhật trạng thái switch
+function updateStatusUI(isOn) {
+  if (isOn) {
+    statusText.textContent = "ĐANG BẬT";
+    statusText.className = "status-badge on";
+  } else {
+    statusText.textContent = "ĐÃ TẮT";
+    statusText.className = "status-badge off";
+  }
+}
+
+// Cập nhật Runner status bar
+function updateRunnerBarUI() {
+  const status = dbOverviewData.runnerStatus || "Chưa chạy";
+  runnerStatusText.textContent = `Tab Treo: ${status}`;
+
+  const isRunning = status.toLowerCase().includes("đang quét") || 
+                    status.toLowerCase().includes("đổi sang") || 
+                    status.toLowerCase().includes("lượt quét tới");
+
+  if (isRunning) {
+    runnerDot.className = "runner-dot active";
+  } else {
+    runnerDot.className = "runner-dot";
+  }
+}
+
+// Tải bài viết từ bảng fbradar_posts trên Supabase
+async function loadRecentPosts() {
+  try {
+    const posts = await SupabaseClient.fetchPosts(30);
+    renderPostsList(posts);
+  } catch (err) {
+    console.warn("Lỗi tải bài viết:", err);
+  }
+}
+
+function renderPostsList(posts) {
+  logsContainer.innerHTML = "";
+  if (!posts || posts.length === 0) {
+    logsContainer.innerHTML = `<div class="empty-state">Chưa có bài viết nào được phát hiện trong Database.</div>`;
+    return;
+  }
+
+  posts.forEach((post) => {
+    const item = document.createElement("div");
+    item.className = "log-item";
+
+    const dateStr = post.postTime || new Date(post.timestamp).toLocaleTimeString("vi-VN");
+    const accList = Array.isArray(post.accountIds) && post.accountIds.length > 0 
+      ? ` [${post.accountIds.join(', ')}]` 
+      : '';
+
+    item.innerHTML = `
+      <div class="log-top-row">
+        <span class="log-keywords">🔑 ${escapeHtml(post.matchedKeyword || 'Từ khóa')}${escapeHtml(accList)}</span>
+        <span class="log-time">${escapeHtml(dateStr)}</span>
+      </div>
+      <div class="log-text" title="${escapeHtml(post.text || '')}">${escapeHtml(post.text || 'Nội dung bài viết...')}</div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 3px;">
+        <span style="font-size: 10px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 250px;">
+          👥 ${escapeHtml(post.groupTitle || 'Nhóm Facebook')}
+        </span>
+        ${post.link ? `<a href="${escapeHtml(post.link)}" target="_blank" class="log-link">Xem bài viết ↗</a>` : ''}
+      </div>
+    `;
+    logsContainer.appendChild(item);
+  });
+}
+
+// Lắng nghe thay đổi storage từ background hoặc tab treo
 function listenToStorageChanges() {
   chrome.storage.onChanged.addListener((changes) => {
-    if (changes.logs) {
-      currentConfig.logs = changes.logs.newValue || [];
-      renderLogs();
-    }
     if (changes.runnerStatus) {
-      currentConfig.runnerStatus = changes.runnerStatus.newValue;
+      dbOverviewData.runnerStatus = changes.runnerStatus.newValue;
       updateRunnerBarUI();
     }
     if (changes.currentRunningGroup) {
-      currentConfig.currentRunningGroup = changes.currentRunningGroup.newValue;
-      renderGroups();
+      dbOverviewData.currentRunningGroup = changes.currentRunningGroup.newValue;
+      renderOverviewUI();
     }
     if (changes.enabled) {
-      currentConfig.enabled = changes.enabled.newValue;
-      masterToggle.checked = !!currentConfig.enabled;
-      updateStatusUI();
+      dbOverviewData.enabled = changes.enabled.newValue;
+      updateStatusUI(changes.enabled.newValue);
     }
   });
+}
+
+// Cài đặt thông báo cục bộ
+function loadLocalAlertSettings() {
+  chrome.storage.local.get(["soundEnabled", "desktopNotify", "tgBotToken", "tgChatId"], (res) => {
+    if (soundEnabledInput) soundEnabledInput.checked = res.soundEnabled !== false;
+    if (desktopNotifyInput) desktopNotifyInput.checked = res.desktopNotify !== false;
+    if (tgBotTokenInput) tgBotTokenInput.value = res.tgBotToken || "";
+    if (tgChatIdInput) tgChatIdInput.value = res.tgChatId || "";
+  });
+}
+
+function saveLocalAlertSettings() {
+  chrome.storage.local.set({
+    soundEnabled: soundEnabledInput.checked,
+    desktopNotify: desktopNotifyInput.checked,
+    tgBotToken: tgBotTokenInput.value.trim(),
+    tgChatId: tgChatIdInput.value.trim()
+  }, () => {
+    showToast("Đã lưu cài đặt thông báo!");
+  });
+}
+
+// Gửi test Telegram
+async function testTelegram() {
+  const token = tgBotTokenInput.value.trim();
+  const chatId = tgChatIdInput.value.trim();
+
+  if (!token || !chatId) {
+    tgTestResult.textContent = "Vui lòng nhập Bot Token và Chat ID";
+    tgTestResult.style.color = "#dc2626";
+    return;
+  }
+
+  tgTestResult.textContent = "Đang gửi...";
+  tgTestResult.style.color = "#0284c7";
+
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: "🎯 <b>[FB Radar]</b> Kiểm tra kết nối Telegram thành công!",
+        parse_mode: "HTML"
+      })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      tgTestResult.textContent = "Gửi thành công!";
+      tgTestResult.style.color = "#16a34a";
+    } else {
+      tgTestResult.textContent = `Thất bại: ${data.description}`;
+      tgTestResult.style.color = "#dc2626";
+    }
+  } catch (err) {
+    tgTestResult.textContent = "Lỗi kết nối!";
+    tgTestResult.style.color = "#dc2626";
+  }
 }
 
 // Timing preview
 function updateTimingPreview() {
-  const baseMinutes = parseFloat(reloadMinutesInput.value) || 0.75;
-  const jitter = parseInt(jitterPercentInput.value, 10) || 0;
+  if (!reloadMinutesInput || !jitterPercentInput) return;
+  const baseMinutes = parseFloat(reloadMinutesInput.value) || 10;
+  const jitter = parseInt(jitterPercentInput.value, 10) || 20;
 
   const minMin = Math.max(0.4, baseMinutes * (1 - jitter / 100));
   const maxMin = baseMinutes * (1 + jitter / 100);
@@ -168,460 +430,64 @@ function updateTimingPreview() {
     return secs > 0 ? `${mins}p ${secs}s` : `${mins} phút`;
   };
 
-  const enabledCount = (currentConfig.groups || []).filter(g => g.enabled !== false && g.url).length || 1;
-  const loopMinStr = formatMinSec(minMin * enabledCount);
-  const loopMaxStr = formatMinSec(maxMin * enabledCount);
-
-  let loopInfo = "";
-  if (enabledCount > 1) {
-    loopInfo = `<br>🔁 Vòng lặp <b>${enabledCount} nhóm</b>: mỗi nhóm được quét lại sau khoảng <b>${loopMinStr} ~ ${loopMaxStr}</b>.`;
-  }
-
-  calcPreview.innerHTML = `Thời gian dừng ở mỗi nhóm: <b>${formatMinSec(minMin)} ~ ${formatMinSec(maxMin)}</b> (ngẫu nhiên).${loopInfo}`;
+  calcPreview.innerHTML = `Thời gian dừng ở mỗi nhóm: <b>${formatMinSec(minMin)} ~ ${formatMinSec(maxMin)}</b> (ngẫu nhiên).`;
 }
 
-// Keywords
-function addKeyword() {
-  const val = keywordInput.value.trim();
-  if (!val) return;
-  if (!currentConfig.keywords.includes(val)) {
-    currentConfig.keywords.push(val);
-    renderKeywords();
-  }
-  keywordInput.value = "";
-}
-
-function removeKeyword(index) {
-  currentConfig.keywords.splice(index, 1);
-  renderKeywords();
-}
-
-function renderKeywords() {
-  keywordTagsContainer.innerHTML = "";
-  currentConfig.keywords.forEach((kw, index) => {
-    const tag = document.createElement("span");
-    tag.className = "tag";
-    tag.innerHTML = `
-      <span>${escapeHtml(kw)}</span>
-      <span class="tag-remove" data-index="${index}">&times;</span>
-    `;
-    tag.querySelector(".tag-remove").addEventListener("click", () => removeKeyword(index));
-    keywordTagsContainer.appendChild(tag);
-  });
-  keywordCount.textContent = `${currentConfig.keywords.length} từ khóa`;
-}
-
-// Helper: Normalize group items to { url, enabled, name, scrollSteps, reloadMinutes }
-function normalizeGroup(item) {
-  if (typeof item === "string") {
-    return { url: item, enabled: true, name: extractGroupName(item), scrollSteps: 0, reloadMinutes: 0 };
-  }
-  return {
-    url: item.url || "",
-    enabled: item.enabled !== false,
-    name: item.name || extractGroupName(item.url || ""),
-    scrollSteps: parseInt(item.scrollSteps, 10) || 0,
-    reloadMinutes: parseFloat(item.reloadMinutes) || 0
-  };
-}
-
-function extractGroupName(url) {
+// Xuất file CSV
+async function exportToExcel() {
   try {
-    const m = url.match(/\/groups\/([^\/?#]+)/);
-    return m ? `Nhóm: ${m[1]}` : url.replace(/^https?:\/\//, "");
-  } catch (e) {
-    return url;
-  }
-}
-
-// Groups
-function addGroup() {
-  let val = groupInput.value.trim();
-  if (!val) return;
-
-  if (!val.startsWith("http://") && !val.startsWith("https://")) {
-    val = "https://" + val;
-  }
-
-  // Check if exists
-  const exists = currentConfig.groups.some(g => {
-    const u = typeof g === "string" ? g : g.url;
-    return u.toLowerCase() === val.toLowerCase();
-  });
-
-  if (!exists) {
-    currentConfig.groups.push({
-      url: val,
-      enabled: true,
-      name: extractGroupName(val),
-      scrollSteps: 0,
-      reloadMinutes: 0
-    });
-    renderGroups();
-  }
-  groupInput.value = "";
-}
-
-function toggleGroupEnabled(index) {
-  currentConfig.groups[index].enabled = !currentConfig.groups[index].enabled;
-  renderGroups();
-  saveConfig(true);
-}
-
-function removeGroup(index) {
-  currentConfig.groups.splice(index, 1);
-  renderGroups();
-  saveConfig(true);
-}
-
-function renderGroups() {
-  groupListContainer.innerHTML = "";
-
-  // Normalize groups
-  currentConfig.groups = currentConfig.groups.map(normalizeGroup);
-
-  const enabledCount = currentConfig.groups.filter(g => g.enabled).length;
-  groupCount.textContent = `${enabledCount}/${currentConfig.groups.length} nhóm đang bật`;
-
-  if (currentConfig.groups.length === 0) {
-    groupListContainer.innerHTML = `<div class="empty-state" style="padding: 10px 0;">Chưa thêm link nhóm nào.</div>`;
-    return;
-  }
-
-  currentConfig.groups.forEach((g, index) => {
-    const isCurrent = currentConfig.currentRunningGroup && 
-      (currentConfig.currentRunningGroup.toLowerCase() === g.url.toLowerCase());
-
-    const hasCustomParams = (g.scrollSteps > 0) || (g.reloadMinutes > 0);
-    const badgeText = hasCustomParams
-      ? `⚡ ${g.scrollSteps > 0 ? g.scrollSteps + " cuộn" : "cuộn mặc định"} | ${g.reloadMinutes > 0 ? g.reloadMinutes + "p" : "dừng mặc định"}`
-      : "";
-
-    const item = document.createElement("div");
-    item.className = `group-item ${g.enabled ? "" : "disabled"} ${isCurrent ? "current-running" : ""}`;
-
-    item.innerHTML = `
-      <div class="group-header-row">
-        <input type="checkbox" class="group-checkbox" ${g.enabled ? "checked" : ""} title="Bật/Tắt theo dõi nhóm này" />
-        <div class="group-content">
-          <div class="group-url" title="${escapeHtml(g.url)}">
-            ${isCurrent ? "🟢 <b>[Đang quét]</b> " : ""}${escapeHtml(g.url)}
-          </div>
-          ${badgeText ? `<span class="group-badge-params">${escapeHtml(badgeText)}</span>` : ""}
-        </div>
-        <button type="button" class="btn-group-toggle-config" title="Cài đặt riêng số bước cuộn & thời gian dừng cho nhóm này">⚙️</button>
-        <span class="group-remove" title="Xóa nhóm">&times;</span>
-      </div>
-      <div class="group-custom-config-row" style="display: none;">
-        <div class="group-param-col">
-          <label>Nhịp cuộn nhóm này:</label>
-          <input type="number" class="group-input-scroll" min="1" max="40" placeholder="Mặc định (${currentConfig.maxScrollSteps || 4})" value="${g.scrollSteps > 0 ? g.scrollSteps : ""}" />
-        </div>
-        <div class="group-param-col">
-          <label>Thời gian dừng (phút):</label>
-          <input type="number" class="group-input-reload" min="0.5" max="60" step="0.5" placeholder="Mặc định (${currentConfig.reloadMinutes || 3}p)" value="${g.reloadMinutes > 0 ? g.reloadMinutes : ""}" />
-        </div>
-      </div>
-    `;
-
-    // Event listeners
-    item.querySelector(".group-checkbox").addEventListener("change", () => toggleGroupEnabled(index));
-    item.querySelector(".group-remove").addEventListener("click", () => removeGroup(index));
-
-    const toggleBtn = item.querySelector(".btn-group-toggle-config");
-    const drawer = item.querySelector(".group-custom-config-row");
-    toggleBtn.addEventListener("click", () => {
-      drawer.style.display = (drawer.style.display === "none") ? "flex" : "none";
-    });
-
-    const scrollInput = item.querySelector(".group-input-scroll");
-    const reloadInput = item.querySelector(".group-input-reload");
-
-    const updateGroupParams = () => {
-      const scrollVal = parseInt(scrollInput.value, 10);
-      const reloadVal = parseFloat(reloadInput.value);
-
-      currentConfig.groups[index].scrollSteps = (scrollVal > 0) ? scrollVal : 0;
-      currentConfig.groups[index].reloadMinutes = (reloadVal > 0) ? reloadVal : 0;
-      saveConfig(true);
-
-      // Cập nhật badge hiển thị
-      const customExists = (currentConfig.groups[index].scrollSteps > 0) || (currentConfig.groups[index].reloadMinutes > 0);
-      let badgeEl = item.querySelector(".group-badge-params");
-      if (customExists) {
-        const text = `⚡ ${currentConfig.groups[index].scrollSteps > 0 ? currentConfig.groups[index].scrollSteps + " cuộn" : "cuộn mặc định"} | ${currentConfig.groups[index].reloadMinutes > 0 ? currentConfig.groups[index].reloadMinutes + "p" : "dừng mặc định"}`;
-        if (!badgeEl) {
-          badgeEl = document.createElement("span");
-          badgeEl.className = "group-badge-params";
-          item.querySelector(".group-content").appendChild(badgeEl);
-        }
-        badgeEl.textContent = text;
-      } else if (badgeEl) {
-        badgeEl.remove();
-      }
-    };
-
-    scrollInput.addEventListener("change", updateGroupParams);
-    reloadInput.addEventListener("change", updateGroupParams);
-
-    groupListContainer.appendChild(item);
-  });
-}
-
-// Test Telegram Sending
-async function testTelegram() {
-  const token = tgBotTokenInput.value.trim();
-  const chatId = tgChatIdInput.value.trim();
-
-  if (!token || !chatId) {
-    tgTestResult.style.color = "#fa383e";
-    tgTestResult.textContent = "Vui lòng nhập Token & Chat ID";
-    return;
-  }
-
-  tgTestResult.style.color = "#65676b";
-  tgTestResult.textContent = "Đang gửi thử...";
-
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: "🎯 [FB Radar] Kết nối thành công!\nBạn sẽ nhận thông báo bài đăng Facebook tại đây.",
-        parse_mode: "HTML"
-      })
-    });
-
-    const data = await res.json();
-    if (data.ok) {
-      tgTestResult.style.color = "#31a24c";
-      tgTestResult.textContent = "Gửi thành công!";
-    } else {
-      tgTestResult.style.color = "#fa383e";
-      tgTestResult.textContent = "Lỗi: " + (data.description || "Không hợp lệ");
+    const posts = await SupabaseClient.fetchPosts(200);
+    if (!posts || posts.length === 0) {
+      alert("Chưa có bài viết nào trong Database để xuất!");
+      return;
     }
+
+    let csvContent = "\uFEFF"; // UTF-8 BOM
+    csvContent += "STT,Thoi Gian,Nhom Facebook,Tu Khoa Khop,Tai Khoan,Noi Dung,Link Bai Viet\n";
+
+    posts.forEach((post, index) => {
+      const escapeCsv = (str) => `"${(str || '').replace(/"/g, '""').replace(/\n/g, ' ')}"`;
+      const timeStr = post.postTime || new Date(post.timestamp).toLocaleString("vi-VN");
+      const accStr = (post.accountIds || []).join('; ');
+
+      const row = [
+        index + 1,
+        escapeCsv(timeStr),
+        escapeCsv(post.groupTitle || ''),
+        escapeCsv(post.matchedKeyword || ''),
+        escapeCsv(accStr),
+        escapeCsv(post.text || ''),
+        escapeCsv(post.link || '')
+      ].join(",");
+
+      csvContent += row + "\n";
+    });
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `FBRadar_Posts_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   } catch (err) {
-    tgTestResult.style.color = "#fa383e";
-    tgTestResult.textContent = "Lỗi kết nối mạng";
+    alert(`Lỗi xuất file: ${err.message}`);
   }
 }
 
-// Sắp xếp bài viết: Bài mới đăng nhất lên trước
-function getSortedLogs() {
-  const logs = currentConfig.logs || [];
-  return [...logs].sort((a, b) => {
-    const timeA = a.postTimestamp || a.timestamp || 0;
-    const timeB = b.postTimestamp || b.timestamp || 0;
-    return timeB - timeA;
-  });
-}
-
-// Logs
-function renderLogs() {
-  logsContainer.innerHTML = "";
-  const logs = getSortedLogs();
-  if (logs.length === 0) {
-    logsContainer.innerHTML = `<div class="empty-state">Chưa có bài viết nào được phát hiện.</div>`;
-    return;
-  }
-
-  logs.slice(0, 50).forEach(log => {
-    const item = document.createElement("div");
-    item.className = "log-item";
-    const detectedStr = log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : "";
-    const postTimeStr = log.postTime || "Vừa phát hiện";
-
-    item.innerHTML = `
-      <div class="log-time" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
-        <span style="font-weight: 600; color: #050505;">🏢 ${escapeHtml(log.groupTitle || "Nhóm Facebook")}</span>
-        <span style="color: #1877f2; font-weight: 700;">🕒 ${escapeHtml(postTimeStr)}</span>
-      </div>
-      <div style="font-size: 10px; color: #65676b; margin-bottom: 4px;">👁️ Bắt được lúc: ${detectedStr}</div>
-      <span class="log-keywords">Từ khóa: ${escapeHtml(log.matchedKeyword || "Khớp")}</span>
-      <div class="log-text">${escapeHtml(log.text || "")}</div>
-      ${log.link ? `<a href="${escapeHtml(log.link)}" target="_blank" class="log-link">Mở bài viết &rarr;</a>` : ""}
-    `;
-    logsContainer.appendChild(item);
-  });
-}
-
-// Xuất Lịch sử ra File Excel (.csv chuẩn UTF-8 BOM)
-function exportToExcel() {
-  const logs = getSortedLogs();
-  if (logs.length === 0) {
-    alert("Chưa có bài viết nào trong lịch sử để xuất Excel!");
-    return;
-  }
-
-  // Tiền tố \uFEFF (Byte Order Mark) để Microsoft Excel mở UTF-8 không bị lỗi font tiếng Việt
-  let csv = "\uFEFF";
-  csv += "STT,Thời gian đăng bài,Thời gian phát hiện,Hội nhóm,Từ khóa khớp,Nội dung trích đoạn,Liên kết bài viết\r\n";
-
-  logs.forEach((log, index) => {
-    const stt = index + 1;
-    const postTime = (log.postTime || "Vừa phát hiện").replace(/"/g, '""');
-    const detectedTime = log.timestamp ? new Date(log.timestamp).toLocaleString("vi-VN") : "";
-    const group = (log.groupTitle || "Nhóm Facebook").replace(/"/g, '""');
-    const keyword = (log.matchedKeyword || "").replace(/"/g, '""');
-    const text = (log.text || "").replace(/\r?\n|\r/g, " ").replace(/"/g, '""');
-    const link = log.link || "";
-
-    csv += `"${stt}","${postTime}","${detectedTime}","${group}","${keyword}","${text}","${link}"\r\n`;
-  });
-
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  const now = new Date();
-  const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}_${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
-  a.href = url;
-  a.download = `FB_Radar_Lich_Su_${dateStr}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-// Master status UI
-function updateStatusUI() {
-  if (currentConfig.enabled) {
-    statusText.textContent = "ĐANG CHẠY";
-    statusText.className = "status-badge on";
-  } else {
-    statusText.textContent = "ĐÃ TẮT";
-    statusText.className = "status-badge off";
-  }
-  updateRunnerBarUI();
-}
-
-// Runner Bar UI
-function updateRunnerBarUI() {
-  if (!currentConfig.enabled) {
-    runnerDot.className = "runner-dot";
-    runnerStatusText.textContent = "Hệ thống đang tắt";
-    openRunnerBtn.textContent = "🚀 Khởi động";
-    return;
-  }
-
-  runnerDot.className = "runner-dot active";
-  runnerStatusText.textContent = currentConfig.runnerStatus || "Tab Treo: Đang hoạt động";
-  openRunnerBtn.textContent = "👁️ Đến Tab Treo";
-}
-
-// Load config
-async function loadConfig() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(DEFAULT_CONFIG, (stored) => {
-      currentConfig = { ...DEFAULT_CONFIG, ...stored };
-
-      // Ensure groups are normalized
-      if (Array.isArray(currentConfig.groups)) {
-        currentConfig.groups = currentConfig.groups.map(normalizeGroup);
-      }
-
-      masterToggle.checked = !!currentConfig.enabled;
-      updateStatusUI();
-
-      renderKeywords();
-      renderGroups();
-
-      reloadMinutesInput.value = currentConfig.reloadMinutes || 0.75;
-      jitterPercentInput.value = currentConfig.jitterPercent || 30;
-      jitterDisplay.textContent = `±${jitterPercentInput.value}%`;
-      scrollSpeedSelect.value = currentConfig.scrollSpeed || "medium";
-      maxScrollStepsInput.value = currentConfig.maxScrollSteps || 4;
-
-      soundEnabledInput.checked = currentConfig.soundEnabled !== false;
-      desktopNotifyInput.checked = currentConfig.desktopNotify !== false;
-      tgBotTokenInput.value = currentConfig.tgBotToken || "";
-      tgChatIdInput.value = currentConfig.tgChatId || "";
-
-      updateTimingPreview();
-      renderLogs();
-      updateRunnerBarUI();
-
-      // Đồng bộ lấy cấu hình & bài viết mới nhất từ Supabase Cloud
-      if (typeof SupabaseClient !== "undefined") {
-        SupabaseClient.pullConfig().then(cloudConfig => {
-          if (cloudConfig) {
-            currentConfig.enabled = cloudConfig.enabled;
-            if (Array.isArray(cloudConfig.keywords) && cloudConfig.keywords.length > 0) {
-              currentConfig.keywords = cloudConfig.keywords;
-            }
-            if (Array.isArray(cloudConfig.groups)) {
-              currentConfig.groups = cloudConfig.groups.map(normalizeGroup);
-            }
-            currentConfig.reloadMinutes = cloudConfig.reloadMinutes || currentConfig.reloadMinutes;
-            currentConfig.maxScrollSteps = cloudConfig.maxScrollSteps || currentConfig.maxScrollSteps;
-            currentConfig.jitterPercent = typeof cloudConfig.jitterPercent === "number" ? cloudConfig.jitterPercent : currentConfig.jitterPercent;
-            currentConfig.scrollSpeed = cloudConfig.scrollSpeed || currentConfig.scrollSpeed;
-
-            chrome.storage.local.set(currentConfig);
-            masterToggle.checked = !!currentConfig.enabled;
-            updateStatusUI();
-            renderKeywords();
-            renderGroups();
-            updateTimingPreview();
-          }
-        }).catch(() => {});
-
-        SupabaseClient.fetchPosts(50).then(cloudPosts => {
-          if (cloudPosts && cloudPosts.length > 0) {
-            const existingIds = new Set((currentConfig.logs || []).map(l => String(l.id)));
-            let hasNew = false;
-            cloudPosts.forEach(cp => {
-              if (!existingIds.has(String(cp.id))) {
-                currentConfig.logs.push(cp);
-                hasNew = true;
-              }
-            });
-            if (hasNew) {
-              chrome.storage.local.set({ logs: currentConfig.logs });
-              renderLogs();
-            }
-          }
-        }).catch(() => {});
-      }
-
-      resolve();
-    });
-  });
-}
-
-// Save config
-function saveConfig(isSilent = false) {
-  currentConfig.enabled = masterToggle.checked;
-  currentConfig.reloadMinutes = Math.max(0.4, parseFloat(reloadMinutesInput.value) || 0.75);
-  currentConfig.jitterPercent = parseInt(jitterPercentInput.value, 10) || 0;
-  currentConfig.scrollSpeed = scrollSpeedSelect.value;
-  currentConfig.maxScrollSteps = parseInt(maxScrollStepsInput.value, 10) || 4;
-
-  currentConfig.soundEnabled = soundEnabledInput.checked;
-  currentConfig.desktopNotify = desktopNotifyInput.checked;
-  currentConfig.tgBotToken = tgBotTokenInput.value.trim();
-  currentConfig.tgChatId = tgChatIdInput.value.trim();
-
-  // Đẩy cấu hình lên Supabase Cloud
-  if (typeof SupabaseClient !== "undefined") {
-    SupabaseClient.pushConfig(currentConfig).catch(() => {});
-  }
-
-  chrome.storage.local.set(currentConfig, () => {
-    chrome.runtime.sendMessage({ action: "CONFIG_UPDATED", config: currentConfig }).catch(() => {});
-
-    if (!isSilent) {
-      saveToast.style.display = "block";
-      setTimeout(() => {
-        saveToast.style.display = "none";
-      }, 2000);
-    }
-  });
+// Hiển thị Toast
+function showToast(msg) {
+  if (!saveToast) return;
+  saveToast.textContent = msg;
+  saveToast.style.display = "block";
+  setTimeout(() => {
+    saveToast.style.display = "none";
+  }, 2200);
 }
 
 function escapeHtml(str) {
   if (!str) return "";
-  return str.replace(/[&<>"']/g, (m) => ({
+  return String(str).replace(/[&<>"']/g, (m) => ({
     "&": "&amp;",
     "<": "&lt;",
     ">": "&gt;",

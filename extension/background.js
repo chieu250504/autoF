@@ -1,63 +1,55 @@
 /**
  * FB Group Keyword Radar - Background Service Worker (Manifest V3)
- * Handles notifications, Telegram dispatch, Single Tab Runner orchestration, and Supabase Cloud Sync
+ * Orchestrates Single Tab Runner, Notifications, Telegram, and Direct Supabase Cloud Sync
  */
 
 importScripts("supabase.js");
 
-console.log("%c[FB Radar Background]%c Service worker initialized with Supabase Cloud Sync.", "color: #1877f2; font-weight: bold;", "color: inherit;");
+console.log("%c[FB Radar Background]%c Service worker initialized with Direct Database Sync.", "color: #1877f2; font-weight: bold;", "color: inherit;");
 
 // Map notificationId to postUrl
 const notificationUrls = new Map();
 
-chrome.runtime.onInstalled.addListener(() => {
-  console.log("[FB Radar Background] Extension installed/updated successfully.");
+// Hàm đồng bộ cấu hình mới nhất từ Supabase vào extension
+async function syncLatestConfigFromDatabase() {
+  try {
+    const aggregated = await SupabaseClient.pullAggregatedRunnerConfig();
+    if (!aggregated) return null;
 
-  // Thiết lập Alarm định kỳ 1 phút để đồng bộ lệnh điều khiển từ Supabase
+    const stored = {
+      enabled: aggregated.enabled,
+      keywords: aggregated.allKeywords || [],
+      allKeywords: aggregated.allKeywords || [],
+      groups: aggregated.groups || [],
+      keywordAccountMap: aggregated.keywordAccountMap || {},
+      activeAccounts: aggregated.accounts || []
+    };
+
+    chrome.storage.local.set(stored, () => {
+      broadcastConfig(stored);
+    });
+
+    return aggregated;
+  } catch (err) {
+    console.warn("[FB Radar Background] Lỗi kéo cấu hình từ Database:", err);
+    return null;
+  }
+}
+
+chrome.runtime.onInstalled.addListener(async () => {
+  console.log("[FB Radar Background] Extension installed/updated. Đang nạp cấu hình từ Supabase Database...");
+
+  // Thiết lập Alarm định kỳ 1 phút để đồng bộ cập nhật từ Database
   chrome.alarms.create("sync_supabase_config", { periodInMinutes: 1 });
 
-  // Đẩy cấu hình ban đầu lên Supabase
-  chrome.storage.local.get(null, (stored) => {
-    if (stored && stored.keywords) {
-      SupabaseClient.pushConfig(stored).catch(() => {});
-    }
-  });
+  // Tự động kéo cấu hình mới nhất từ Database khi vừa khởi động
+  await syncLatestConfigFromDatabase();
 });
 
-// Lắng nghe alarm để kéo cấu hình từ Supabase (Hỗ trợ điều khiển bật/tắt từ xa qua Web)
+// Lắng nghe alarm để kéo cấu hình từ Database (Hỗ trợ điều khiển bật/tắt từ xa qua Web Dashboard)
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === "sync_supabase_config") {
-    try {
-      const cloudConfig = await SupabaseClient.pullConfig();
-      if (!cloudConfig) return;
-
-      chrome.storage.local.get(null, (localConfig) => {
-        // Kiểm tra xem cấu hình trên Cloud có thay đổi so với local không
-        const isEnabledChanged = localConfig.enabled !== cloudConfig.enabled;
-        const isKeywordsChanged = JSON.stringify(localConfig.keywords) !== JSON.stringify(cloudConfig.keywords);
-        const isGroupsChanged = JSON.stringify(localConfig.groups) !== JSON.stringify(cloudConfig.groups);
-
-        if (isEnabledChanged || isKeywordsChanged || isGroupsChanged) {
-          console.log("[FB Radar Background] Phát hiện cấu hình thay đổi từ Supabase Cloud. Cập nhật...");
-          const updated = {
-            ...localConfig,
-            enabled: cloudConfig.enabled,
-            keywords: cloudConfig.keywords || localConfig.keywords,
-            groups: cloudConfig.groups || localConfig.groups,
-            reloadMinutes: cloudConfig.reloadMinutes || localConfig.reloadMinutes,
-            maxScrollSteps: cloudConfig.maxScrollSteps || localConfig.maxScrollSteps,
-            jitterPercent: typeof cloudConfig.jitterPercent === "number" ? cloudConfig.jitterPercent : localConfig.jitterPercent,
-            scrollSpeed: cloudConfig.scrollSpeed || localConfig.scrollSpeed
-          };
-
-          chrome.storage.local.set(updated, () => {
-            broadcastConfig(updated);
-          });
-        }
-      });
-    } catch (e) {
-      // Ignore background fetch error
-    }
+    await syncLatestConfigFromDatabase();
   }
 });
 
@@ -163,7 +155,7 @@ chrome.notifications.onClicked.addListener((notifId) => {
 // Build standardized target URL with chronological sort and runner flag
 function buildRunnerUrl(rawUrl) {
   try {
-    let cleanUrl = rawUrl.trim();
+    let cleanUrl = (rawUrl || "").trim();
     if (!cleanUrl.startsWith("http")) {
       cleanUrl = "https://" + cleanUrl;
     }
@@ -172,32 +164,34 @@ function buildRunnerUrl(rawUrl) {
     urlObj.hash = "fbradar_runner";
     return urlObj.toString();
   } catch (e) {
-    return rawUrl + "#fbradar_runner";
+    return (rawUrl || "https://www.facebook.com/groups/feed/") + "#fbradar_runner";
   }
 }
 
-// Manage Single Runner Tab
+// Khởi chạy hoặc chuyển tab treo, LUÔN LẤY DỮ LIỆU TRỰC TIẾP TỪ DATABASE
 async function handleOpenOrFocusRunnerTab() {
-  chrome.storage.local.get(["runnerTabId", "groups"], async (stored) => {
+  console.log("[FB Radar Background] Bắt đầu mở Tab Treo. Đang kéo dữ liệu mới nhất từ Database...");
+  
+  // 1. Kéo cấu hình mới nhất trực tiếp từ Database
+  const aggregated = await syncLatestConfigFromDatabase();
+  const groups = (aggregated && Array.isArray(aggregated.groups)) ? aggregated.groups : [];
+
+  const enabledGroups = groups.filter(g => g && g.url && g.enabled !== false);
+
+  let targetUrl = "https://www.facebook.com/groups/feed/?sorting_setting=CHRONOLOGICAL#fbradar_runner";
+  if (enabledGroups.length > 0) {
+    targetUrl = buildRunnerUrl(enabledGroups[0].url);
+  }
+
+  chrome.storage.local.get(["runnerTabId"], async (stored) => {
     let runnerId = stored.runnerTabId;
-    const groups = stored.groups || [];
-
-    // Lọc các nhóm đang bật
-    const enabledGroups = groups
-      .map(g => (typeof g === "string" ? { url: g, enabled: true } : g))
-      .filter(g => g.enabled && g.url);
-
-    let targetUrl = "https://www.facebook.com/groups/feed/?sorting_setting=CHRONOLOGICAL#fbradar_runner";
-    if (enabledGroups.length > 0) {
-      targetUrl = buildRunnerUrl(enabledGroups[0].url);
-    }
 
     if (runnerId) {
       try {
         const tab = await chrome.tabs.get(runnerId);
         if (tab) {
-          // Tab vẫn tồn tại, đưa tab lên trên
-          chrome.tabs.update(runnerId, { active: true });
+          // Tab vẫn tồn tại, điều hướng tới nhóm mới và đưa tab lên trên
+          chrome.tabs.update(runnerId, { active: true, url: targetUrl });
           if (tab.windowId) {
             chrome.windows.update(tab.windowId, { focused: true });
           }
@@ -215,6 +209,8 @@ async function handleOpenOrFocusRunnerTab() {
         runnerStatus: "Đang khởi tạo Tab Treo...",
         currentRunningGroup: targetUrl
       });
+      // Gửi heartbeat lên database
+      SupabaseClient.sendHeartbeat("Đang khởi tạo Tab Treo...", targetUrl).catch(() => {});
     });
   });
 }
@@ -229,23 +225,27 @@ chrome.tabs.onRemoved.addListener((tabId) => {
         runnerStatus: "Tab Treo đã đóng",
         currentRunningGroup: null
       });
+      SupabaseClient.sendHeartbeat("Tab Treo đã đóng", null).catch(() => {});
     }
   });
 });
 
 // Listener for messages from popup or content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === "CONFIG_UPDATED") {
-    broadcastConfig(message.config);
-    // Đồng bộ cấu hình lên Supabase Cloud
-    SupabaseClient.pushConfig(message.config).catch(() => {});
-  } else if (message.action === "OPEN_OR_FOCUS_RUNNER_TAB") {
+  if (message.action === "OPEN_OR_FOCUS_RUNNER_TAB") {
     handleOpenOrFocusRunnerTab();
+    sendResponse({ ok: true });
+  } else if (message.action === "REFRESH_DATABASE_CONFIG") {
+    // Popup hoặc tab yêu cầu đồng bộ database ngay lập tức
+    syncLatestConfigFromDatabase().then((aggregated) => {
+      sendResponse({ ok: true, data: aggregated });
+    });
+    return true; // Phản hồi bất đồng bộ
   } else if (message.action === "NEW_MATCHED_POST") {
     const post = message.post;
     console.log("[FB Radar Background] Nhận bài viết khớp:", post);
 
-    // Lưu bài viết lên Supabase Cloud
+    // Lưu bài viết lên Supabase Cloud kèm mapping tài khoản
     SupabaseClient.savePost(post).catch(() => {});
 
     chrome.storage.local.get(null, (config) => {
@@ -256,6 +256,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendTelegramAlert(config, post);
       }
     });
+    sendResponse({ ok: true });
   } else if (message.action === "UPDATE_RUNNER_STATUS") {
     chrome.storage.local.set({
       runnerStatus: message.status,
@@ -263,6 +264,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     // Gửi heartbeat trạng thái Tab Treo lên Supabase
     SupabaseClient.sendHeartbeat(message.status, message.currentGroup).catch(() => {});
+    sendResponse({ ok: true });
   } else if (message.action === "CHECK_AM_I_RUNNER") {
     chrome.storage.local.get(["runnerTabId"], (stored) => {
       const isRunnerId = sender.tab && stored.runnerTabId === sender.tab.id;
