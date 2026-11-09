@@ -39,8 +39,8 @@ export async function GET(request: NextRequest) {
 
     // Lọc theo tài khoản: nếu không phải xem toàn bộ, chỉ hiển thị bài có gắn account_id tương ứng
     if (!viewAll && targetAccountId) {
-      // Dùng PostgREST cs (contains) cho jsonb column
-      query = query.contains('account_ids', [targetAccountId]);
+      // Dùng PostgREST cs (contains) dạng JSON string cho jsonb column
+      query = query.contains('account_ids', JSON.stringify([targetAccountId]));
     }
 
     if (keyword && keyword.trim() !== '') {
