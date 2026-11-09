@@ -135,20 +135,138 @@ const PostExtractor = {
            document.querySelector('div[aria-label*="News Feed"]');
   },
 
-  getPostElements() {
-    const feed = this.getFeedContainer();
-    if (!feed) {
-      return Array.from(document.querySelectorAll('[role="article"]'));
+  /**
+   * Kiểm tra xem một phần tử có phải là BÌNH LUẬN (Comment) hay không
+   */
+  isCommentElement(el) {
+    if (!el) return true;
+
+    // 1. Nếu el nằm bên trong một [role="article"] khác -> 100% là bình luận con
+    if (el.parentElement && el.parentElement.closest('[role="article"]')) {
+      return true;
     }
 
-    const articles = feed.querySelectorAll('[role="article"]');
-    if (articles.length > 0) return Array.from(articles);
+    // 2. Kiểm tra aria-label của chính article
+    const ariaLabel = (el.getAttribute("aria-label") || "").toLowerCase();
+    if (
+      ariaLabel.includes("bình luận") ||
+      ariaLabel.includes("comment") ||
+      ariaLabel.includes("phản hồi") ||
+      ariaLabel.includes("reply") ||
+      ariaLabel.includes("câu trả lời")
+    ) {
+      return true;
+    }
 
-    return Array.from(feed.children).filter(el => el.offsetHeight > 100);
+    // 3. Kiểm tra xem có nằm trong vùng comment/form bình luận không
+    if (el.closest('form, ul[role="group"], div[aria-label*="bình luận" i], div[aria-label*="comment" i]')) {
+      return true;
+    }
+
+    // 4. Nếu chỉ chứa link comment mà không có link bài viết gốc
+    const hasCommentLink = el.querySelector('a[href*="comment_id="], a[href*="reply_comment_id="]');
+    const hasPostLink = el.querySelector('a[href*="/posts/"], a[href*="/permalink/"], a[href*="multi_permalinks="], a[href*="story_fbid="]');
+    if (hasCommentLink && !hasPostLink) {
+      return true;
+    }
+
+    // 5. Chiều cao quá nhỏ (< 80px)
+    if (el.offsetHeight > 0 && el.offsetHeight < 80) {
+      return true;
+    }
+
+    return false;
+  },
+
+  getPostElements() {
+    const feed = this.getFeedContainer();
+    let rawArticles = [];
+
+    if (feed) {
+      const articles = feed.querySelectorAll('[role="article"]');
+      if (articles.length > 0) {
+        rawArticles = Array.from(articles);
+      } else {
+        rawArticles = Array.from(feed.children).filter(el => el.offsetHeight > 120);
+      }
+    } else {
+      rawArticles = Array.from(document.querySelectorAll('[role="article"]'));
+    }
+
+    // LỌC NGHIÊM NGẶT: CHỈ LẤY BÀI VIẾT GỐC (POSTS), LOẠI BỎ 100% CÁC BÌNH LUẬN (COMMENTS)
+    return rawArticles.filter(el => !this.isCommentElement(el));
+  },
+
+  /**
+   * Trích xuất CHÍNH XÁC nội dung bài đăng của tác giả (TUYỆT ĐỐI KHÔNG LẤY BÌNH LUẬN)
+   */
+  extractPostContent(postEl) {
+    if (!postEl) return "";
+
+    // Cách 1: Thử lấy qua thuộc tính chuẩn của Facebook cho nội dung bài đăng chính
+    const officialMsg = postEl.querySelector('[data-ad-preview="message"], [data-ad-comet-preview="message"]');
+    if (officialMsg) {
+      const msgText = officialMsg.innerText || officialMsg.textContent || "";
+      if (msgText.trim().length > 3) {
+        return TextNormalizer.cleanText(msgText);
+      }
+    }
+
+    // Xác định RANH GIỚI BÌNH LUẬN: Thanh công cụ tương tác (Thích, Bình luận, Chia sẻ)
+    // Toàn bộ nội dung nằm từ thanh này trở xuống ĐỀU LÀ BÌNH LUẬN và phải bị loại bỏ!
+    const commentBoundary = postEl.querySelector(
+      '[role="toolbar"], ' +
+      'form, ' +
+      'div[aria-label*="Bình luận dưới tên" i], ' +
+      'div[aria-label*="Comment as" i], ' +
+      'div[aria-label*="Viết bình luận" i], ' +
+      'div[aria-label*="Write a comment" i], ' +
+      'div[aria-label*="Bình luận" i], ' +
+      'div[aria-label*="Comments" i], ' +
+      'ul, ' +
+      '[data-visualcompletion="ignore-dynamic"]'
+    );
+
+    // Cách 2: Lấy các thẻ div[dir="auto"] nhưng CHỈ NẰM TRONG PHẦN BÀI ĐĂNG GỐC
+    const textNodes = postEl.querySelectorAll('div[dir="auto"]');
+    const contentParts = [];
+
+    textNodes.forEach(node => {
+      // 1. Bỏ nếu node nằm trong một article con (chính là bình luận)
+      if (node.closest('[role="article"]') !== postEl) {
+        return;
+      }
+
+      // 2. Bỏ nếu node nằm trong form, nút bấm, ul, ol, toolbar
+      if (node.closest('form, ul, ol, [role="button"], [role="toolbar"]')) {
+        return;
+      }
+
+      // 3. Bỏ nếu node nằm trong bất kỳ container bình luận nào
+      if (node.closest('div[aria-label*="bình luận" i], div[aria-label*="comment" i], div[aria-label*="trả lời" i], div[aria-label*="reply" i]')) {
+        return;
+      }
+
+      // 4. Bỏ nếu node nằm SAU hoặc BÊN TRONG ranh giới bình luận (commentBoundary)
+      if (commentBoundary) {
+        const position = commentBoundary.compareDocumentPosition(node);
+        if ((position & Node.DOCUMENT_POSITION_FOLLOWING) || (position & Node.DOCUMENT_POSITION_CONTAINED_BY)) {
+          return;
+        }
+      }
+
+      const txt = (node.innerText || node.textContent || "").trim();
+      // Bỏ qua các chuỗi quá ngắn như tên nút bấm hoặc nhãn thời gian
+      if (txt.length > 5) {
+        contentParts.push(txt);
+      }
+    });
+
+    return TextNormalizer.cleanText(contentParts.join("\n"));
   },
 
   extract(postEl) {
-    if (!postEl) return null;
+    if (!postEl || this.isCommentElement(postEl)) return null;
 
     let postLink = null;
     let postId = null;
@@ -157,6 +275,11 @@ const PostExtractor = {
     for (const a of linkElements) {
       const href = a.getAttribute("href") || a.href;
       if (!href) continue;
+
+      // Bỏ qua link dẫn đến comment cụ thể
+      if (href.includes("comment_id=") || href.includes("reply_comment_id=")) {
+        continue;
+      }
 
       const matchPost = href.match(/\/posts\/(\d+)/);
       const matchPermalink = href.match(/\/permalink\/(\d+)/);
@@ -178,25 +301,12 @@ const PostExtractor = {
     // 2. Trích xuất thời gian đăng bài
     const timeInfo = this.extractPostTime(postEl, linkElements);
 
-    // 3. Tự động bấm "Xem thêm" (See more) nếu bài viết dài bị thu gọn
+    // 3. Tự động bấm "Xem thêm" (See more) CỦA BÀI VIẾT (không bấm xem thêm bình luận)
     this.expandSeeMore(postEl);
 
-    // 4. Trích xuất nội dung văn bản bài viết
-    const textNodes = postEl.querySelectorAll('div[dir="auto"], [data-ad-preview="message"]');
-    let contentParts = [];
-
-    textNodes.forEach(node => {
-      if (node.closest('ul') || node.closest('[role="button"]') || node.closest('form')) {
-        return;
-      }
-      const txt = node.innerText || node.textContent;
-      if (txt && txt.trim().length > 3) {
-        contentParts.push(txt.trim());
-      }
-    });
-
-    const fullContent = TextNormalizer.cleanText(contentParts.join("\n"));
-    if (!fullContent) return null;
+    // 4. Trích xuất CHÍNH XÁC nội dung bài đăng của tác giả (KHÔNG LẤY BÌNH LUẬN)
+    const fullContent = this.extractPostContent(postEl);
+    if (!fullContent || fullContent.length < 5) return null;
 
     if (!postId) {
       postId = "hash_" + this.simpleHash(fullContent.substring(0, 80));
@@ -298,7 +408,15 @@ const PostExtractor = {
     try {
       const buttons = postEl.querySelectorAll('[role="button"]');
       for (const btn of buttons) {
+        // Không click nếu nút nằm trong vùng bình luận
+        if (btn.closest('form, ul, ol, div[aria-label*="bình luận" i], div[aria-label*="comment" i]')) {
+          continue;
+        }
         const txt = (btn.innerText || "").toLowerCase().trim();
+        // Chỉ bấm nút Xem thêm bài viết, TUYỆT ĐỐI không bấm "Xem thêm bình luận" hay "View more comments"
+        if (txt.includes("bình luận") || txt.includes("comment") || txt.includes("phản hồi") || txt.includes("reply")) {
+          continue;
+        }
         if (txt === "xem thêm" || txt === "see more" || txt === "xem thêm...") {
           btn.click();
           break;
