@@ -40,6 +40,28 @@ function getAuthHeaders(): HeadersInit {
   };
 }
 
+/**
+ * Xử lý an toàn dữ liệu trả về từ server, chống lỗi parse HTML
+ */
+async function parseResponse<T = any>(res: Response): Promise<{ success: boolean; data?: T; error?: string; [key: string]: any }> {
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    return {
+      success: false,
+      error: `Máy chủ phản hồi mã ${res.status} (${res.statusText || 'Lỗi dịch vụ'})`,
+    };
+  }
+  try {
+    const json = await res.json();
+    return json;
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err?.message || 'Định dạng phản hồi không hợp lệ',
+    };
+  }
+}
+
 export async function login(username: string, password: string): Promise<{ success: boolean; account?: UserAccount; error?: string }> {
   try {
     const res = await fetch(`${API_BASE}/auth/login`, {
@@ -47,7 +69,7 @@ export async function login(username: string, password: string): Promise<{ succe
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     });
-    const data = await res.json();
+    const data = await parseResponse(res);
     if (data.success && data.token && data.account) {
       setStoredSession(data.token, data.account);
       return { success: true, account: data.account };
@@ -63,7 +85,7 @@ export async function fetchConfig(): Promise<RadarConfig | null> {
     const res = await fetch(`${API_BASE}/config`, {
       headers: getAuthHeaders(),
     });
-    const json = await res.json();
+    const json = await parseResponse<RadarConfig>(res);
     if (json.success && json.data) {
       return json.data;
     }
@@ -81,7 +103,7 @@ export async function updateConfig(updates: Partial<RadarConfig>): Promise<{ suc
       headers: getAuthHeaders(),
       body: JSON.stringify(updates),
     });
-    const json = await res.json();
+    const json = await parseResponse<RadarConfig>(res);
     if (!res.ok || !json.success) {
       return { success: false, error: json.error || 'Cập nhật thất bại' };
     }
@@ -111,7 +133,7 @@ export async function fetchPosts(params?: {
     const res = await fetch(`${API_BASE}/posts?${query.toString()}`, {
       headers: getAuthHeaders(),
     });
-    const json = await res.json();
+    const json = await parseResponse<RadarPost[]>(res);
     if (json.success) {
       return { total: json.total || 0, data: json.data || [] };
     }
@@ -132,7 +154,7 @@ export async function deletePost(id?: string, deleteAll?: boolean): Promise<bool
       method: 'DELETE',
       headers: getAuthHeaders(),
     });
-    const json = await res.json();
+    const json = await parseResponse(res);
     return Boolean(json.success);
   } catch (err) {
     console.error('Delete post error:', err);
