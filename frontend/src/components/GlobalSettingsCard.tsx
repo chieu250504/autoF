@@ -40,38 +40,35 @@ export const GlobalSettingsCard: React.FC<Props> = ({ config, onSave, loading })
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
+    <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col justify-between">
       <form onSubmit={handleSave}>
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200">
-              <Sliders className="w-5 h-5" />
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200">
+              <Sliders className="w-4 h-4" />
             </div>
-            <div>
-              <h2 className="font-bold text-slate-900 text-sm">Cài Đặt Quét Mặc Định</h2>
-              <p className="text-xs text-slate-500">Các tham số áp dụng khi nhóm không cài đặt riêng</p>
-            </div>
+            <h2 className="font-bold text-slate-900 text-sm">Cài Đặt Mặc Định</h2>
           </div>
           <button
             type="submit"
             disabled={saving || loading}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-xs font-semibold transition shadow-sm disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-xs font-semibold transition shadow-xs disabled:opacity-50"
           >
             {savedSuccess ? (
               <>
-                <Check className="w-4 h-4 text-emerald-200" />
+                <Check className="w-3.5 h-3.5 text-emerald-200" />
                 <span>Đã Lưu!</span>
               </>
             ) : (
               <>
-                <Save className="w-4 h-4" />
-                <span>Lưu Cài Đặt</span>
+                <Save className="w-3.5 h-3.5" />
+                <span>Lưu</span>
               </>
             )}
           </button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3">
           <div>
             <label className="block text-[11px] font-medium text-slate-600 mb-1">Chu kỳ mặc định (phút):</label>
             <input
@@ -98,20 +95,20 @@ export const GlobalSettingsCard: React.FC<Props> = ({ config, onSave, loading })
           </div>
 
           <div>
-            <label className="block text-[11px] font-medium text-slate-600 mb-1">Tốc độ cuộn chuột:</label>
+            <label className="block text-[11px] font-medium text-slate-600 mb-1">Tốc độ cuộn:</label>
             <select
               value={scrollSpeed}
               onChange={(e) => setScrollSpeed(e.target.value)}
               className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-indigo-500 cursor-pointer"
             >
-              <option value="slow">Chậm (Slow - An toàn)</option>
-              <option value="medium">Vừa (Medium - Tự nhiên)</option>
+              <option value="slow">Chậm (Slow)</option>
+              <option value="medium">Vừa (Medium)</option>
               <option value="fast">Nhanh (Fast)</option>
             </select>
           </div>
 
           <div>
-            <label className="block text-[11px] font-medium text-slate-600 mb-1">Độ lệch Jitter ngẫu nhiên:</label>
+            <label className="block text-[11px] font-medium text-slate-600 mb-1">Độ lệch Jitter:</label>
             <div className="flex items-center gap-2">
               <input
                 type="range"
@@ -122,7 +119,7 @@ export const GlobalSettingsCard: React.FC<Props> = ({ config, onSave, loading })
                 onChange={(e) => setJitterPercent(Number(e.target.value))}
                 className="w-full accent-indigo-600 cursor-pointer"
               />
-              <span className="text-xs font-mono font-semibold text-indigo-700 min-w-[32px] text-right">
+              <span className="text-xs font-mono font-semibold text-indigo-700 min-w-[28px] text-right">
                 {jitterPercent}%
               </span>
             </div>

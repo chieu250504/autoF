@@ -13,10 +13,10 @@
       <div class="logo-group">
         <span class="radar-dot"></span>
         <h1>FB Radar</h1>
-        <span class="cloud-badge" title="Đồng bộ trực tiếp với Supabase Database">☁️ DB Realtime</span>
+        <span class="cloud-badge">☁️ DB Realtime</span>
       </div>
       <div class="header-actions">
-        <button type="button" id="refreshDbBtn" class="btn-refresh" title="Làm mới dữ liệu từ Database ngay lập tức">
+        <button type="button" id="refreshDbBtn" class="btn-refresh" title="Làm mới">
           <span class="refresh-icon">🔄</span> Làm mới
         </button>
         <div class="switch-container">
@@ -35,20 +35,20 @@
         <span class="runner-dot" id="runnerDot"></span>
         <span id="runnerStatusText">Tab Treo: Đang dừng</span>
       </div>
-      <button type="button" id="openRunnerBtn" class="btn-runner">🚀 Mở / Bắt Đầu Tab Treo</button>
+      <button type="button" id="openRunnerBtn" class="btn-runner">🚀 Mở Tab Treo</button>
     </div>
 
     <!-- Navigation Tabs -->
     <nav class="nav-tabs">
-      <button type="button" class="tab-btn active" data-tab="tab-database">🎯 Tổng Quan Quét</button>
+      <button type="button" class="tab-btn active" data-tab="tab-database">🎯 Tổng Quan</button>
       <button type="button" class="tab-btn" data-tab="tab-timing">⚡ Hành Vi</button>
       <button type="button" class="tab-btn" data-tab="tab-alerts">🔔 Thông Báo</button>
-      <button type="button" class="tab-btn" data-tab="tab-logs">📜 Lịch Sử Bài Viết</button>
+      <button type="button" class="tab-btn" data-tab="tab-logs">📜 Lịch Sử</button>
     </nav>
 
     <!-- Content Sections -->
     <main class="tab-content-wrapper">
-      <!-- TAB 1: DATABASE OVERVIEW (KHÔNG CẦN FORM NHẬP, LẤY HOÀN TOÀN TỪ DATABASE) -->
+      <!-- TAB 1: DATABASE OVERVIEW -->
       <section id="tab-database" class="tab-pane active">
         <!-- Stats Summary Grid -->
         <div class="overview-stats-grid">
@@ -63,7 +63,7 @@
             <span class="stat-icon">🏢</span>
             <div class="stat-details">
               <span class="stat-val" id="statGroupsCount">0</span>
-              <span class="stat-lbl">Nhóm cần quét</span>
+              <span class="stat-lbl">Hội nhóm</span>
             </div>
           </div>
           <div class="stat-box">
@@ -75,63 +75,45 @@
           </div>
         </div>
 
-        <!-- Groups Section from Database -->
+        <!-- Groups Section -->
         <div class="card">
           <div class="card-header">
-            <div>
-              <label class="section-title">Hội Nhóm Quét Luân Phiên (Từ Database)</label>
-              <p class="field-hint" style="margin-top: 2px;">Tự động hợp nhất từ các tài khoản, không quét trùng lặp</p>
-            </div>
+            <label class="section-title">Hội Nhóm Quét Luân Phiên</label>
             <span class="hint-count" id="groupOverviewCount">Đang tải...</span>
           </div>
-          
           <div class="list-container" id="dbGroupList">
-            <div class="empty-state">Đang kết nối tải danh sách nhóm từ Database...</div>
+            <div class="empty-state">Đang tải danh sách nhóm...</div>
           </div>
         </div>
 
-        <!-- Keywords Section from Database -->
+        <!-- Keywords Section -->
         <div class="card">
           <div class="card-header">
-            <div>
-              <label class="section-title">Từ Khóa Đang Theo Dõi (Từ Database)</label>
-              <p class="field-hint" style="margin-top: 2px;">Phân phối bài viết chuẩn xác về từng tài khoản</p>
-            </div>
+            <label class="section-title">Từ Khóa Theo Dõi</label>
             <span class="hint-count" id="keywordOverviewCount">0 từ khóa</span>
           </div>
           <div class="tag-container" id="dbKeywordTags">
-            <div class="empty-state" style="padding: 10px 0;">Đang tải từ khóa...</div>
+            <div class="empty-state" style="padding: 8px 0;">Đang tải từ khóa...</div>
           </div>
         </div>
 
-        <!-- Remote Management Notice -->
-        <div class="card notice-card">
-          <div class="notice-header">
-            <span class="notice-icon">💡</span>
-            <div>
-              <strong style="color: #0f4c81; font-size: 12px;">Quản Lý Tập Trung Từ Web Dashboard</strong>
-              <p class="field-hint" style="color: #3b5998; margin-top: 2px;">
-                Mọi tác vụ thêm/bớt nhóm, thay đổi từ khóa, bật/tắt quét đều thực hiện tại Web Dashboard. Extension luôn tự động đọc trực tiếp từ Database theo thời gian thực!
-              </p>
-            </div>
-          </div>
-          <a href="http://localhost:3000" target="_blank" class="btn-open-web">
-            🌐 Mở Web Dashboard Quản Lý (localhost:3000)
-          </a>
-        </div>
+        <!-- Link Web Dashboard -->
+        <a href="http://localhost:3000" target="_blank" class="btn-open-web">
+          🌐 Mở Web Dashboard Quản Lý
+        </a>
       </section>
 
       <!-- TAB 2: TIMING & HUMAN SIMULATION -->
       <section id="tab-timing" class="tab-pane">
         <div class="card">
-          <label class="section-title">Mô Phỏng Con Người & Tần Suất Dừng</label>
+          <label class="section-title">Mô Phỏng Con Người</label>
           <div class="form-row">
             <label for="reloadMinutes">Thời gian dừng mặc định (phút):</label>
             <input type="number" id="reloadMinutes" min="0.4" max="60" value="10" step="1" />
           </div>
 
           <div class="form-row">
-            <label for="jitterPercent">Biên độ ngẫu nhiên (Jitter ±%):</label>
+            <label for="jitterPercent">Biên độ ngẫu nhiên (±%):</label>
             <div class="range-wrap">
               <input type="range" id="jitterPercent" min="0" max="50" value="20" step="5" />
               <span id="jitterDisplay" class="value-badge">±20%</span>
@@ -139,27 +121,25 @@
           </div>
 
           <div class="calc-preview" id="calcPreview">
-            Thời gian ở mỗi nhóm: <b>8p ~ 12p</b> (mô phỏng người đọc thật).
+            Thời gian ở mỗi nhóm: <b>8p ~ 12p</b>.
           </div>
-          <p class="field-hint">🛡️ Mỗi nhóm có thể có thời gian dừng và số bước cuộn riêng được cấu hình trên Web Dashboard.</p>
         </div>
 
         <div class="card">
-          <label class="section-title">Mô Phỏng Cuộn Chuột (Human Scrolling)</label>
+          <label class="section-title">Mô Phỏng Cuộn Chuột</label>
           <div class="form-row">
             <label for="scrollSpeed">Tốc độ cuộn:</label>
             <select id="scrollSpeed">
-              <option value="slow">Chậm & Tự nhiên (Khuyên dùng)</option>
-              <option value="medium" selected>Vừa phải</option>
-              <option value="fast">Nhanh</option>
+              <option value="slow">Chậm (Slow)</option>
+              <option value="medium" selected>Vừa (Medium)</option>
+              <option value="fast">Nhanh (Fast)</option>
             </select>
           </div>
 
           <div class="form-row">
-            <label for="maxScrollSteps">Số nhịp cuộn mặc định:</label>
+            <label for="maxScrollSteps">Số nhịp cuộn:</label>
             <input type="number" id="maxScrollSteps" min="1" max="50" value="8" />
           </div>
-          <p class="field-hint">⚡ Mô phỏng cuộn ngắt quãng và dừng đọc bài trước khi chuyển sang nhóm tiếp theo.</p>
         </div>
       </section>
 
@@ -168,38 +148,36 @@
         <div class="card">
           <label class="section-title">Chuông Báo Desktop</label>
           <div class="form-row">
-            <label for="soundEnabled">Phát âm thanh chuông khi có bài mới:</label>
+            <label for="soundEnabled">Âm thanh chuông báo:</label>
             <input type="checkbox" id="soundEnabled" checked style="width: auto;" />
           </div>
           <div class="form-row">
-            <label for="desktopNotify">Hiển thị thông báo góc màn hình:</label>
+            <label for="desktopNotify">Thông báo góc màn hình:</label>
             <input type="checkbox" id="desktopNotify" checked style="width: auto;" />
           </div>
-          <p class="field-hint">🔔 Khi phát hiện bài viết, click vào thông báo desktop sẽ tự động mở thẳng bài viết đó.</p>
         </div>
 
         <div class="card">
           <div class="card-header">
-            <label class="section-title">Thông Báo Telegram (Về Điện Thoại)</label>
+            <label class="section-title">Thông Báo Telegram</label>
             <span class="hint-count">Tùy chọn</span>
           </div>
           <div class="form-group" style="margin-bottom: 8px;">
-            <label for="tgBotToken" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 3px;">Bot Token (từ @BotFather):</label>
-            <input type="text" id="tgBotToken" placeholder="VD: 123456789:ABCdefGHIjklMNO..." />
+            <label for="tgBotToken" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 3px;">Bot Token:</label>
+            <input type="text" id="tgBotToken" placeholder="VD: 123456789:ABCdef..." />
           </div>
           <div class="form-group" style="margin-bottom: 8px;">
-            <label for="tgChatId" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 3px;">Chat ID (từ @userinfobot):</label>
+            <label for="tgChatId" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 3px;">Chat ID:</label>
             <input type="text" id="tgChatId" placeholder="VD: 987654321" />
           </div>
           <div style="display: flex; gap: 8px; align-items: center; margin-top: 6px;">
-            <button type="button" id="testTelegramBtn" class="btn-sm" style="padding: 6px 12px;">Gửi thử tin nhắn</button>
+            <button type="button" id="testTelegramBtn" class="btn-sm" style="padding: 5px 10px;">Gửi thử</button>
             <span id="tgTestResult" style="font-size: 11px; font-weight: 600;"></span>
           </div>
-          <p class="field-hint" style="margin-top: 8px;">📲 Giúp bạn dù đang di chuyển ngoài đường vẫn nhận được bài viết ngay lập tức.</p>
         </div>
 
         <div class="card" style="padding: 10px;">
-          <button type="button" id="saveAlertsBtn" class="btn-primary" style="padding: 8px;">Lưu Cài Đặt Thông Báo</button>
+          <button type="button" id="saveAlertsBtn" class="btn-primary" style="padding: 8px;">Lưu Cài Đặt</button>
         </div>
       </section>
 
@@ -207,24 +185,21 @@
       <section id="tab-logs" class="tab-pane">
         <div class="card">
           <div class="card-header">
-            <div>
-              <label class="section-title">Lịch Sử Bài Viết Vừa Bắt Được</label>
-              <p class="field-hint" style="margin-top: 2px;">Cập nhật realtime từ bảng fbradar_posts</p>
-            </div>
+            <label class="section-title">Bài Viết Vừa Bắt Được</label>
             <div style="display: flex; gap: 6px; align-items: center;">
-              <button type="button" id="refreshPostsBtn" class="btn-sm" style="padding: 4px 8px; font-size: 11px; background: #0284c7;">🔄 Tải lại</button>
-              <button type="button" id="exportExcelBtn" class="btn-sm" style="padding: 4px 10px; font-size: 11px; background: #2e7d32;">📥 Xuất CSV</button>
+              <button type="button" id="refreshPostsBtn" class="btn-sm" style="padding: 3px 8px; font-size: 11px; background: #0284c7;">🔄 Tải lại</button>
+              <button type="button" id="exportExcelBtn" class="btn-sm" style="padding: 3px 8px; font-size: 11px; background: #2e7d32;">📥 Xuất CSV</button>
             </div>
           </div>
           <div class="logs-container" id="logsList">
-            <div class="empty-state">Đang tải danh sách bài viết từ database...</div>
+            <div class="empty-state">Đang tải bài viết...</div>
           </div>
         </div>
       </section>
     </main>
 
     <!-- Global Toast Notification -->
-    <div id="saveToast" class="save-toast">Đã đồng bộ dữ liệu mới nhất từ Database!</div>
+    <div id="saveToast" class="save-toast">Đã đồng bộ dữ liệu!</div>
   </div>
 
   <script src="supabase.js"></script>

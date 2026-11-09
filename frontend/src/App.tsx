@@ -1,29 +1,29 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { LoginModal } from './components/LoginModal';
+import { supabase } from './lib/supabase';
+import {
+  fetchConfig,
+  updateConfig,
+  fetchPosts,
+  deletePost,
+  getStoredUser,
+  clearStoredSession,
+} from './lib/api';
+import { RadarConfig, RadarPost, UserAccount, GroupConfig } from './types';
 import { Header } from './components/Header';
 import { KeywordsCard } from './components/KeywordsCard';
 import { GroupsCard } from './components/GroupsCard';
 import { GlobalSettingsCard } from './components/GlobalSettingsCard';
 import { PostsTable } from './components/PostsTable';
-import {
-  getStoredUser,
-  clearStoredSession,
-  fetchConfig,
-  updateConfig,
-  fetchPosts,
-  deletePost,
-} from './lib/api';
-import { supabase } from './lib/supabase';
-import { RadarConfig, RadarPost, GroupConfig, UserAccount } from './types';
+import { LoginModal } from './components/LoginModal';
 
 export const App: React.FC = () => {
-  const [currentUser, setCurrentUser] = useState<UserAccount | null>(getStoredUser());
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => getStoredUser());
   const [config, setConfig] = useState<RadarConfig | null>(null);
   const [posts, setPosts] = useState<RadarPost[]>([]);
   const [loadingConfig, setLoadingConfig] = useState(false);
   const [loadingPosts, setLoadingPosts] = useState(false);
 
-  // Tải cấu hình tài khoản từ Backend API
+  // Tải cấu hình tài khoản từ backend
   const loadConfig = useCallback(async () => {
     if (!currentUser) return;
     setLoadingConfig(true);
@@ -34,28 +34,23 @@ export const App: React.FC = () => {
     setLoadingConfig(false);
   }, [currentUser]);
 
-  // Tải danh sách bài viết thuộc về tài khoản này
+  // Tải danh sách bài viết từ backend
   const loadPosts = useCallback(async () => {
     if (!currentUser) return;
     setLoadingPosts(true);
-    const res = await fetchPosts({ limit: 150 });
+    const res = await fetchPosts({ limit: 100 });
     setPosts(res.data);
     setLoadingPosts(false);
   }, [currentUser]);
 
-  // Khởi tạo khi đăng nhập
-  useEffect(() => {
-    if (currentUser) {
-      loadConfig();
-      loadPosts();
-    }
-  }, [currentUser, loadConfig, loadPosts]);
-
-  // Lắng nghe Supabase Realtime
+  // Khởi tạo và thiết lập Supabase Realtime Channels
   useEffect(() => {
     if (!currentUser) return;
 
-    // Realtime channel cho bài viết (fbradar_posts)
+    loadConfig();
+    loadPosts();
+
+    // Realtime channel cho bài viết mới
     const postsChannel = supabase
       .channel(`public:fbradar_posts:${currentUser.id}`)
       .on(
@@ -63,7 +58,6 @@ export const App: React.FC = () => {
         { event: 'INSERT', schema: 'public', table: 'fbradar_posts' },
         (payload) => {
           const newPost = payload.new as RadarPost;
-          // Kiểm tra xem bài viết có gắn tài khoản này không (hoặc chưa phân chia)
           const targetAccounts = Array.isArray(newPost.account_ids) ? newPost.account_ids : [];
           const isForMe = targetAccounts.length === 0 || targetAccounts.includes(currentUser.id);
 
@@ -107,7 +101,7 @@ export const App: React.FC = () => {
       )
       .subscribe();
 
-    // Polling nhẹ mỗi 10 giây để nhịp tim Online/Offline luôn chính xác
+    // Polling mỗi 10 giây để nhịp tim Online/Offline luôn chính xác
     const heartbeatTimer = setInterval(() => {
       loadConfig();
     }, 10000);
@@ -149,7 +143,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // Cập nhật cài đặt toàn cục của tài khoản
+  // Cập nhật cài đặt mặc định
   const handleSaveGlobalSettings = async (updates: Partial<RadarConfig>) => {
     const res = await updateConfig(updates);
     if (res.success && res.data) {
@@ -201,9 +195,9 @@ export const App: React.FC = () => {
         loading={loadingConfig}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-3.5 sm:py-6 space-y-3.5 sm:space-y-6">
         {/* Controls Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5 sm:gap-6">
           <div className="lg:col-span-1">
             <KeywordsCard
               keywords={config?.keywords || []}
@@ -240,8 +234,8 @@ export const App: React.FC = () => {
         />
       </main>
 
-      <footer className="py-4 border-t border-slate-200 text-center text-xs text-slate-500">
-        FB Group Keyword Radar • Chế độ Đa Tài Khoản Thông Minh (Multi-Tenant Runner)
+      <footer className="py-3 border-t border-slate-200 text-center text-xs text-slate-400">
+        FB Group Radar
       </footer>
     </div>
   );
