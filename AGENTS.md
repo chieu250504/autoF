@@ -11,11 +11,12 @@ Thư mục gốc của dự án **CHỈ ĐƯỢC PHÉP CHỨA ĐÚNG 3 THƯ MỤ
 autoF/
 ├── AGENTS.md          # Quy tắc & kiến trúc toàn dự án cho AI
 ├── .gitignore         # Bỏ qua node_modules, build cache, env local
+├── package.json       # Script chạy nhanh npm run dev cho toàn dự án
 ├── extension/         # Module Chrome Extension (Worker quét Facebook an toàn)
 ├── frontend/          # Module Frontend Web Dashboard (React + Tailwind CSS)
 └── backend/           # Module Backend API (Next.js)
 ```
-> **NGHIÊM CẤM:** Tuyệt đối không tạo thêm các file hoặc thư mục linh tinh ở thư mục gốc ngoài 3 thư mục trên và các file quy tắc AI (`AGENTS.md`, `.gitignore`).
+> **NGHIÊM CẤM:** Tuyệt đối không tạo thêm các file hoặc thư mục linh tinh ở thư mục gốc ngoài 3 thư mục trên và các file cấu hình chuẩn (`package.json`, `AGENTS.md`, `.gitignore`).
 
 ---
 

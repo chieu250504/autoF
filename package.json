@@ -1,0 +1,12 @@
+{
+  "name": "autof",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FB Group Keyword Radar - Monorepo Runner",
+  "scripts": {
+    "dev": "node -e \"const { spawn } = require('child_process'); console.log('\\x1b[36m%s\\x1b[0m', '🚀 Đang khởi chạy đồng thời Backend (port 3001) và Frontend (port 3000)...'); const b = spawn('npm run dev', { cwd: 'backend', shell: true, stdio: 'inherit' }); const f = spawn('npm run dev', { cwd: 'frontend', shell: true, stdio: 'inherit' }); ['SIGINT', 'SIGTERM'].forEach(sig => process.on(sig, () => { try { b.kill(); } catch(e){} try { f.kill(); } catch(e){} process.exit(); }));\"",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "install:all": "npm --prefix backend install && npm --prefix frontend install --legacy-peer-deps"
+  }
+}
