@@ -364,49 +364,42 @@ const PostExtractor = {
   },
 
   /**
-   * Trích xuất CHÍNH XÁC ID bài viết và Link trực tiếp tới bài viết
-   * Hỗ trợ mọi định dạng URL Facebook: /posts/<id>, /permalink/<id>, story_fbid, multi_permalinks, set=gm...
-   * Đặc biệt hỗ trợ mã định danh bài viết mới của Facebook (pfbid...)
+   * Quét và tìm kiếm ID / Link bài viết trong một phần tử DOM (hoặc phần tử cha)
    */
-  extractPostLinkAndId(postEl) {
-    if (!postEl) return { id: null, link: null };
+  searchLinkInContainer(container, cleanGroupBase) {
+    if (!container) return { id: null, link: null };
 
-    // Ranh giới bình luận để tránh nhầm link của các bình luận bên dưới bài viết
-    const commentBoundary = postEl.querySelector(
-      '[data-ad-rendering-role="like_button"], [role="toolbar"], form[role="presentation"]'
-    );
+    const allAnchors = Array.from(container.querySelectorAll ? container.querySelectorAll('a, [role="link"]') : []);
 
-    const allAnchors = Array.from(postEl.querySelectorAll('a[href]'));
-
-    // Lọc ra các thẻ <a> nằm TRƯỚC ranh giới bình luận (thuộc phần header / tác giả / thời gian bài viết)
-    const candidates = allAnchors.filter(a => {
-      if (commentBoundary && (commentBoundary.contains(a) || (commentBoundary.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING))) {
-        return false;
+    // 1. Kích hoạt chuỗi sự kiện hover lên các thẻ nghi vấn là timestamp để ép Facebook Comet giải mã GraphQL route thành permalink thật
+    for (const el of allAnchors) {
+      const aria = el.getAttribute ? (el.getAttribute("aria-label") || "") : "";
+      const txt = (el.innerText || el.textContent || "").trim();
+      const href = el.getAttribute ? (el.getAttribute("href") || el.href || "") : "";
+      if (this.isTimeString(aria) || this.isTimeString(txt) || (el.querySelector && el.querySelector("time, abbr")) || href.endsWith("#") || href.endsWith("#_")) {
+        try {
+          const opts = { view: window, bubbles: true, cancelable: true };
+          el.dispatchEvent(new PointerEvent("pointerover", opts));
+          el.dispatchEvent(new PointerEvent("pointerenter", opts));
+          el.dispatchEvent(new MouseEvent("mouseover", opts));
+          el.dispatchEvent(new MouseEvent("mouseenter", opts));
+          el.dispatchEvent(new FocusEvent("focusin", opts));
+        } catch (e) {}
       }
-      return true;
-    });
-
-    const linksToScan = candidates.length > 0 ? candidates : allAnchors;
-    const currentUrl = window.location.href;
-    const cleanGroupBase = currentUrl.split("?")[0].split("#")[0].replace(/\/+$/, "");
+    }
 
     let foundId = null;
     let foundLink = null;
 
-    // QUY TẮC 1: Quét tìm qua các regex permalink bài viết chuẩn
-    for (const a of linksToScan) {
-      const rawHref = a.getAttribute("href") || a.href;
+    // 2. Quét qua tất cả các thẻ <a> để tìm URL khớp cấu trúc permalink bài viết
+    for (const a of allAnchors) {
+      const rawHref = (a.getAttribute && a.getAttribute("href")) || a.href;
       if (!rawHref) continue;
 
-      // Tuyệt đối bỏ qua các link bình luận bên dưới
-      if (rawHref.includes("comment_id=") || rawHref.includes("reply_comment_id=")) {
-        continue;
-      }
-
-      // Bỏ qua link chuyển hướng ngoài Facebook
-      if (rawHref.includes("l.facebook.com")) {
-        continue;
-      }
+      // Tuyệt đối bỏ qua link bình luận con
+      if (rawHref.includes("comment_id=") || rawHref.includes("reply_comment_id=")) continue;
+      // Bỏ qua link ngoài
+      if (rawHref.includes("l.facebook.com")) continue;
 
       let fullHref = rawHref;
       if (!fullHref.startsWith("http")) {
@@ -428,50 +421,97 @@ const PostExtractor = {
 
       if (parsedId) {
         foundId = parsedId;
-        try {
-          const u = new URL(fullHref);
-          if (u.pathname.includes("/posts/") || u.pathname.includes("/permalink/")) {
-            // Loại bỏ sạch các tracking query (?__cft__, ?__tn__)
+        if (cleanGroupBase.includes("/groups/")) {
+          foundLink = `${cleanGroupBase}/posts/${parsedId}/`;
+        } else {
+          try {
+            const u = new URL(fullHref);
             foundLink = `${u.origin}${u.pathname}`;
-          } else if (cleanGroupBase.includes("/groups/")) {
-            foundLink = `${cleanGroupBase}/posts/${parsedId}/`;
-          } else {
-            foundLink = `${u.origin}${u.pathname}`;
+          } catch (e) {
+            foundLink = fullHref.split("?")[0];
           }
-        } catch (e) {
-          foundLink = fullHref.split("?")[0];
         }
-        break;
+        return { id: foundId, link: foundLink };
       }
     }
 
-    // QUY TẮC 2: Nếu chưa tìm thấy bằng regex, tìm thẻ <a> biểu thị thời gian đăng bài (timestamp link)
-    if (!foundId || !foundLink) {
-      for (const a of linksToScan) {
-        const aria = a.getAttribute("aria-label") || "";
-        const txt = (a.innerText || "").trim();
-        if (this.isTimeString(aria) || this.isTimeString(txt)) {
-          const rawHref = a.getAttribute("href") || a.href;
-          if (rawHref && !rawHref.includes("comment_id=") && !rawHref.includes("#")) {
-            let fullHref = rawHref.startsWith("http") ? rawHref : `https://www.facebook.com${rawHref.startsWith("/") ? "" : "/"}${rawHref}`;
-            try {
-              const u = new URL(fullHref);
-              foundLink = `${u.origin}${u.pathname}`;
-              const parts = u.pathname.replace(/\/+$/, "").split("/");
-              const lastSegment = parts[parts.length - 1];
-              if (lastSegment && lastSegment !== "posts" && lastSegment !== "permalink" && lastSegment !== "groups") {
-                foundId = lastSegment;
-              }
-            } catch (e) {
-              foundLink = fullHref.split("?")[0];
+    // 3. Quét qua các thẻ đính kèm ảnh hoặc video trong bài viết (chứa set=gm. hoặc set=pcb.)
+    if (container.querySelectorAll) {
+      const mediaLinks = Array.from(container.querySelectorAll('a[href*="photo"], a[href*="video"], a[href*="set="]'));
+      for (const m of mediaLinks) {
+        const h = (m.getAttribute && m.getAttribute("href")) || m.href || "";
+        if (h.includes("comment_id=") || h.includes("reply_comment_id=")) continue;
+        const mSet = h.match(/set=(?:gm|pcb)\.([a-zA-Z0-9_\-]+)/);
+        const mFbid = h.match(/fbid=([a-zA-Z0-9_\-]+)/);
+        if (mSet && mSet[1]) {
+          foundId = mSet[1];
+          foundLink = cleanGroupBase.includes("/groups/") ? `${cleanGroupBase}/posts/${foundId}/` : h.split("?")[0];
+          return { id: foundId, link: foundLink };
+        } else if (mFbid && mFbid[1]) {
+          foundId = mFbid[1];
+          foundLink = cleanGroupBase.includes("/groups/") ? `${cleanGroupBase}/posts/${foundId}/` : h.split("?")[0];
+          return { id: foundId, link: foundLink };
+        }
+      }
+    }
+
+    // 4. Quét qua các thẻ thời gian đăng bài
+    for (const a of allAnchors) {
+      const aria = (a.getAttribute && a.getAttribute("aria-label")) || "";
+      const txt = (a.innerText || a.textContent || "").trim();
+      if (this.isTimeString(aria) || this.isTimeString(txt)) {
+        const rawHref = (a.getAttribute && a.getAttribute("href")) || a.href || "";
+        if (rawHref && !rawHref.includes("comment_id=") && rawHref !== "#" && rawHref !== "") {
+          let fullHref = rawHref.startsWith("http") ? rawHref : `https://www.facebook.com${rawHref.startsWith("/") ? "" : "/"}${rawHref}`;
+          try {
+            const u = new URL(fullHref);
+            const parts = u.pathname.replace(/\/+$/, "").split("/");
+            const last = parts[parts.length - 1];
+            if (last && last !== "groups" && last !== "posts" && last !== "permalink") {
+              foundId = last;
+              foundLink = cleanGroupBase.includes("/groups/") ? `${cleanGroupBase}/posts/${foundId}/` : `${u.origin}${u.pathname}`;
+              return { id: foundId, link: foundLink };
             }
-            break;
-          }
+          } catch (e) {}
         }
       }
     }
 
-    return { id: foundId, link: foundLink };
+    return { id: null, link: null };
+  },
+
+  /**
+   * Trích xuất CHÍNH XÁC ID bài viết và Link trực tiếp tới bài viết
+   * Hỗ trợ mọi định dạng URL Facebook: /posts/<id>, /permalink/<id>, story_fbid, multi_permalinks, set=gm...
+   * Tự động mở rộng tìm kiếm lên phần tử cha nếu phần tử hiện tại chưa bao trọn Header
+   */
+  extractPostLinkAndId(postEl) {
+    if (!postEl) return { id: null, link: null };
+
+    const currentUrl = window.location.href;
+    const cleanGroupBase = currentUrl.split("?")[0].split("#")[0].replace(/\/+$/, "");
+
+    // 1. Tìm trực tiếp trong chính postEl
+    let res = this.searchLinkInContainer(postEl, cleanGroupBase);
+    if (res.id && res.link) {
+      console.log(`[FB Radar] 🎯 Tìm thấy Link bài viết trực tiếp: ${res.link} (ID: ${res.id})`);
+      return res;
+    }
+
+    // 2. Nếu postEl chưa bao trọn phần header (author/timestamp), tìm mở rộng lên các phần tử cha (tối đa 6 cấp)
+    let curr = postEl.parentElement;
+    let depth = 0;
+    while (curr && curr !== document.body && depth < 6) {
+      res = this.searchLinkInContainer(curr, cleanGroupBase);
+      if (res.id && res.link) {
+        console.log(`[FB Radar] 🎯 Tìm thấy Link bài viết qua phần tử cha (cấp ${depth + 1}): ${res.link} (ID: ${res.id})`);
+        return res;
+      }
+      curr = curr.parentElement;
+      depth++;
+    }
+
+    return { id: null, link: null };
   },
 
   extract(postEl) {
