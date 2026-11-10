@@ -134,26 +134,7 @@ export async function PATCH(request: NextRequest) {
     if (updates.enabled !== undefined) {
       const isEnabled = Boolean(updates.enabled);
 
-      // Nếu muốn BẬT quét: kiểm tra xem có trình duyệt / Tab Treo nào đang Online không
-      if (isEnabled) {
-        const { data: globalState } = await supabase
-          .from('fbradar_config')
-          .select('last_heartbeat, runner_status')
-          .eq('id', 'default')
-          .maybeSingle();
-
-        const last = globalState?.last_heartbeat ? new Date(globalState.last_heartbeat).getTime() : 0;
-        const isOnline = last > 0 && (Date.now() - last) <= 150000; // 2.5 phút
-
-        if (!isOnline) {
-          return errorResponse(
-            'Không thể bật quét: Hiện tại không có trình duyệt hoặc Tab Treo nào đang hoạt động! Vui lòng mở Facebook trên Google Chrome và nhấn BẬT QUÉT trên Extension trước.',
-            400
-          );
-        }
-      }
-
-      // Cập nhật ngay vào bảng tổng fbradar_config để Extension nhận lệnh ngay lập tức
+      // Cập nhật ngay vào bảng tổng fbradar_config để Extension / Background nhận lệnh ngay lập tức
       await supabase
         .from('fbradar_config')
         .update({

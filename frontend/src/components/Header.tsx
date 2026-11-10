@@ -25,12 +25,12 @@ export const Header: React.FC<Props> = ({ currentUser, config, onToggleEnabled, 
     if (!config || toggling) return;
 
     const willTurnOn = !config.enabled;
-    // Nếu muốn BẬT nhưng không có Tab Treo nào đang Online -> Báo lỗi ngay
+    // Nếu Chrome hiện đang đóng hoàn toàn (Offline)
     if (willTurnOn && !isTabOnline) {
-      alert(
-        "⚠️ Không thể bật quét:\n\nHiện tại không có trình duyệt hoặc Tab Treo nào đang hoạt động!\nVui lòng mở Facebook trên Google Chrome và nhấn 'BẮT ĐẦU QUÉT' trên Extension trước."
+      const confirmOpen = window.confirm(
+        "⚠️ Trình duyệt Chrome hiện đang tắt (Offline).\n\nBạn có muốn lưu lệnh BẬT quét từ xa không?\n(Ngay khi bạn mở trình duyệt Google Chrome lên, Extension sẽ tự động mở tab Facebook và bắt đầu quét ngay lập tức)."
       );
-      return;
+      if (!confirmOpen) return;
     }
 
     setToggling(true);

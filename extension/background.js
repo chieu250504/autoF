@@ -33,22 +33,83 @@ async function syncLatestConfigFromDatabase() {
   }
 }
 
+let isOpeningTab = false;
+
+/**
+ * Kiểm tra lệnh Bật từ Web Dashboard ngay cả khi chưa mở tab Facebook nào.
+ * Nếu phát hiện enabled: true trên Cloud mà chưa có Tab Treo -> Tự động mở Facebook!
+ */
+async function checkRemoteRunnerCommand() {
+  try {
+    const aggregated = await syncLatestConfigFromDatabase();
+
+    chrome.storage.local.get(["runnerTabId"], async (stored) => {
+      let runnerId = stored.runnerTabId;
+      let isTabAlive = false;
+
+      if (runnerId) {
+        try {
+          const tab = await chrome.tabs.get(runnerId);
+          if (tab && tab.url && (tab.url.includes("facebook.com") || tab.url.includes("fbradar_runner"))) {
+            isTabAlive = true;
+          }
+        } catch (e) {
+          isTabAlive = false;
+        }
+      }
+
+      // Nếu Web Dashboard gửi lệnh BẬT quét
+      if (aggregated && aggregated.enabled) {
+        // NẾU CHƯA CÓ TAB TREO NÀO HOẠT ĐỘNG -> TỰ ĐỘNG MỞ TAB FACEBOOK ĐỂ QUÉT!
+        if (!isTabAlive && !isOpeningTab) {
+          isOpeningTab = true;
+          console.log("%c[FB Radar Background]%c Phát hiện lệnh BẬT từ Web Dashboard mà chưa có Tab Treo -> Tự động mở Facebook!", "color: #10b981; font-weight: bold;", "color: inherit;");
+          try {
+            await handleOpenOrFocusRunnerTab();
+          } finally {
+            setTimeout(() => { isOpeningTab = false; }, 4000);
+          }
+        }
+      } else {
+        // Nếu không có Tab Treo nào chạy, gửi nhịp tim định kỳ từ Background
+        // để Web Dashboard luôn nhận biết trình duyệt Chrome đang bật và sẵn sàng nhận lệnh
+        if (!isTabAlive) {
+          SupabaseClient.sendHeartbeat("Trình duyệt Chrome sẵn sàng (Chờ lệnh)", null).catch(() => {});
+        }
+      }
+    });
+  } catch (err) {
+    console.warn("[FB Radar Background] Lỗi checkRemoteRunnerCommand:", err);
+  }
+}
+
 chrome.runtime.onInstalled.addListener(async () => {
   console.log("[FB Radar Background] Extension installed/updated. Đang nạp cấu hình từ Supabase Database...");
 
-  // Thiết lập Alarm định kỳ 1 phút để đồng bộ cập nhật từ Database
-  chrome.alarms.create("sync_supabase_config", { periodInMinutes: 1 });
+  // Thiết lập Alarm định kỳ 30 giây để kiểm tra lệnh điều khiển từ xa
+  chrome.alarms.create("sync_supabase_config", { periodInMinutes: 0.5 });
 
-  // Tự động kéo cấu hình mới nhất từ Database khi vừa khởi động
-  await syncLatestConfigFromDatabase();
+  // Kiểm tra ngay khi extension được nạp
+  await checkRemoteRunnerCommand();
 });
 
-// Lắng nghe alarm để kéo cấu hình từ Database (Hỗ trợ điều khiển bật/tắt từ xa qua Web Dashboard)
+// Khi trình duyệt Chrome khởi động
+chrome.runtime.onStartup.addListener(async () => {
+  console.log("[FB Radar Background] Trình duyệt Chrome khởi động. Đang kiểm tra lệnh quét từ xa...");
+  await checkRemoteRunnerCommand();
+});
+
+// Lắng nghe alarm để liên tục kiểm tra lệnh Bật/Tắt từ Web Dashboard
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === "sync_supabase_config") {
-    await syncLatestConfigFromDatabase();
+    await checkRemoteRunnerCommand();
   }
 });
+
+// Thăm dò định kỳ mỗi 5 giây khi Service Worker đang thức
+setInterval(() => {
+  checkRemoteRunnerCommand();
+}, 5000);
 
 // Broadcast config updates to all open Facebook tabs
 function broadcastConfig(config) {
