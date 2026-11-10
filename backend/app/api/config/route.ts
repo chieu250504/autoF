@@ -140,7 +140,9 @@ export async function PATCH(request: NextRequest) {
         .update({
           enabled: isEnabled,
           updated_at: new Date().toISOString(),
-          ...(isEnabled ? { runner_status: 'Đang bắt đầu quét...' } : { runner_status: 'Đã tạm dừng từ Web Dashboard' })
+          ...(isEnabled 
+            ? { runner_status: 'Chờ Extension phản hồi...' } 
+            : { runner_status: 'Đã tạm dừng từ Web Dashboard', current_running_group: null })
         })
         .eq('id', 'default');
     }

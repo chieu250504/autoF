@@ -29,6 +29,14 @@ export const App: React.FC = () => {
     setLoadingConfig(true);
     const data = await fetchConfig();
     if (data) {
+      // Nếu Extension đã offline > 75s (trình duyệt Chrome đã tắt) mà Database vẫn ghi nhận enabled: true
+      const last = data.last_heartbeat ? new Date(data.last_heartbeat).getTime() : 0;
+      const isDead = (Date.now() - last) > 75000;
+      if (data.enabled && isDead) {
+        // Tự động đồng bộ tắt về Database để nút công tắc luôn phản ánh trung thực
+        updateConfig({ enabled: false }).catch(() => {});
+        data.enabled = false;
+      }
       setConfig(data);
     }
     setLoadingConfig(false);

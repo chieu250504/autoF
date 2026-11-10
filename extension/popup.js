@@ -179,7 +179,15 @@ async function refreshDatabaseOverview(showNotification = false) {
       }
     }
 
-    // Trạng thái chạy thực tế của Extension: Chỉ coi là BẬT nếu Tab Treo thực sự đang sống hoặc được kích hoạt
+    // Nếu không có Tab Treo nào sống mà Database vẫn ghi nhận enabled: true -> Tự động đồng bộ tắt
+    if (!isRunnerTabAlive && aggregated && aggregated.enabled) {
+      console.log("[FB Radar Popup] Không có Tab Treo hoạt động nhưng DB đang enabled -> Đồng bộ tắt về DB");
+      try {
+        await SupabaseClient.setMasterEnabled(false);
+      } catch (e) {}
+    }
+
+    // Trạng thái chạy thực tế của Extension: Chỉ coi là BẬT nếu Tab Treo thực sự đang sống
     const isActuallyRunning = isRunnerTabAlive;
 
     // Hợp nhất danh sách nhóm để hiển thị: nếu aggregated rỗng (do đang dừng), lấy từ allAccounts
