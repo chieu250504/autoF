@@ -440,12 +440,34 @@ const PostExtractor = {
   },
 
   /**
-   * Trích xuất thời gian đăng bài trên Facebook
+   * Trích xuất thời gian đăng bài trên Facebook và tính toán timestamp chính xác
    */
   extractPostTime(postEl, linkElements) {
     let timeStr = "";
     let timestamp = Date.now();
 
+    // 1. Kiểm tra data-utime hoặc time tag trên toàn bộ postEl
+    const utimeEl = postEl.querySelector('[data-utime]');
+    if (utimeEl) {
+      const u = parseInt(utimeEl.getAttribute('data-utime'), 10);
+      if (!isNaN(u) && u > 1000000000) {
+        timestamp = u * 1000;
+        timeStr = new Date(timestamp).toLocaleString("vi-VN");
+        return { postTimeStr: timeStr, postTimestamp: timestamp };
+      }
+    }
+
+    const timeTag = postEl.querySelector('time[datetime]');
+    if (timeTag) {
+      const dt = Date.parse(timeTag.getAttribute('datetime'));
+      if (!isNaN(dt) && dt > 0) {
+        timestamp = dt;
+        timeStr = new Date(timestamp).toLocaleString("vi-VN");
+        return { postTimeStr: timeStr, postTimestamp: timestamp };
+      }
+    }
+
+    // 2. Tìm qua các link permalink thời gian
     for (const a of linkElements) {
       const aria = a.getAttribute("aria-label");
       if (aria && this.isTimeString(aria)) {
@@ -459,6 +481,7 @@ const PostExtractor = {
       }
     }
 
+    // 3. Tìm qua các thẻ abbr, span con
     if (!timeStr) {
       const candidates = postEl.querySelectorAll('abbr, span[id], a[role="link"] span');
       for (const el of candidates) {
@@ -479,9 +502,24 @@ const PostExtractor = {
       timeStr = timeStr.replace(/^[·\s]+|[·\s]+$/g, "")
                        .replace(/\s*·\s*(Đã chỉnh sửa|Public|Công khai).*$/i, "")
                        .trim();
-      timestamp = this.parseRelativeToTimestamp(timeStr);
+      timestamp = this.parseRelativeToTimestamp(timeStr, postEl);
+      // Ghi lại thời gian đăng chuẩn xác vào post_time
+      timeStr = new Date(timestamp).toLocaleString("vi-VN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric"
+      });
     } else {
-      timeStr = "Vừa phát hiện";
+      timestamp = Date.now();
+      timeStr = new Date(timestamp).toLocaleString("vi-VN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric"
+      });
     }
 
     return { postTimeStr: timeStr, postTimestamp: timestamp };
@@ -490,28 +528,108 @@ const PostExtractor = {
   isTimeString(str) {
     if (!str) return false;
     const s = str.toLowerCase();
-    return /(vừa xong|phút|giờ|ngày|tháng|năm|hôm qua|hôm nay|just now|min|hr|hour|day|yesterday|\b\d+[mhd]\b)/i.test(s);
+    return /(vừa xong|phút|giờ|ngày|tuần|tháng|thg|năm|hôm qua|hôm nay|just now|min|hr|hour|day|week|yesterday|\b\d+[mhd]\b|\d{1,2}[\/\-]\d{1,2})/i.test(s);
   },
 
-  parseRelativeToTimestamp(str) {
+  parseRelativeToTimestamp(str, postEl) {
     const now = Date.now();
-    const s = str.toLowerCase();
+    if (!str && !postEl) return now;
 
-    if (s.includes("vừa xong") || s.includes("just now")) {
+    if (postEl) {
+      const utimeEl = postEl.querySelector('[data-utime]');
+      if (utimeEl) {
+        const u = parseInt(utimeEl.getAttribute('data-utime'), 10);
+        if (!isNaN(u) && u > 1000000000) return u * 1000;
+      }
+    }
+
+    if (!str) return now;
+    const s = str.toLowerCase().trim();
+
+    // Vừa xong / Just now / Vừa phát hiện
+    if (s.includes("vừa xong") || s.includes("just now") || s.includes("vừa phát hiện")) {
       return now;
     }
 
-    const mMin = s.match(/(\d+)\s*(phút|m|min)/i);
-    if (mMin) return now - parseInt(mMin[1], 10) * 60 * 1000;
+    // Phút: "5 phút", "5 phút trước", "5m", "5 min"
+    const mMin = s.match(/(\d+)\s*(phút|m|min|mins)/i);
+    if (mMin) {
+      return now - parseInt(mMin[1], 10) * 60 * 1000;
+    }
 
-    const mHour = s.match(/(\d+)\s*(giờ|h|hr|hour)/i);
-    if (mHour) return now - parseInt(mHour[1], 10) * 3600 * 1000;
+    // Giờ: "5 giờ", "5 giờ trước", "5h", "5 hr"
+    const mHour = s.match(/(\d+)\s*(giờ|h|hr|hour|hours)/i);
+    if (mHour) {
+      return now - parseInt(mHour[1], 10) * 3600 * 1000;
+    }
 
-    const mDay = s.match(/(\d+)\s*(ngày|d|day)/i);
-    if (mDay) return now - parseInt(mDay[1], 10) * 86400 * 1000;
+    // Ngày: "3 ngày", "3 ngày trước", "3d", "3 day"
+    const mDay = s.match(/(\d+)\s*(ngày|d|day|days)/i);
+    if (mDay) {
+      return now - parseInt(mDay[1], 10) * 86400 * 1000;
+    }
 
+    // Tuần: "2 tuần", "2 tuần trước", "2w", "2 week"
+    const mWeek = s.match(/(\d+)\s*(tuần|w|week|weeks)/i);
+    if (mWeek) {
+      return now - parseInt(mWeek[1], 10) * 7 * 86400 * 1000;
+    }
+
+    // Hôm qua lúc HH:mm / Yesterday
     if (s.includes("hôm qua") || s.includes("yesterday")) {
+      const timeMatch = s.match(/(\d{1,2}):(\d{2})/);
+      const d = new Date(now - 86400 * 1000);
+      if (timeMatch) {
+        d.setHours(parseInt(timeMatch[1], 10), parseInt(timeMatch[2], 10), 0, 0);
+        return d.getTime();
+      }
       return now - 24 * 3600 * 1000;
+    }
+
+    // Hôm nay lúc HH:mm / Today
+    if (s.includes("hôm nay") || s.includes("today")) {
+      const timeMatch = s.match(/(\d{1,2}):(\d{2})/);
+      if (timeMatch) {
+        const d = new Date(now);
+        d.setHours(parseInt(timeMatch[1], 10), parseInt(timeMatch[2], 10), 0, 0);
+        return d.getTime();
+      }
+      return now;
+    }
+
+    // Định dạng số ngày tháng năm: "5/10/2025", "05/10/2025", "5-10-2025"
+    const mDateSlash = s.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if (mDateSlash) {
+      const day = parseInt(mDateSlash[1], 10);
+      const month = parseInt(mDateSlash[2], 10) - 1;
+      const year = parseInt(mDateSlash[3], 10);
+      const timeMatch = s.match(/(\d{1,2}):(\d{2})/);
+      const hours = timeMatch ? parseInt(timeMatch[1], 10) : 12;
+      const minutes = timeMatch ? parseInt(timeMatch[2], 10) : 0;
+      const d = new Date(year, month, day, hours, minutes, 0);
+      if (!isNaN(d.getTime())) return d.getTime();
+    }
+
+    // Định dạng chữ: "10 Tháng 5", "5 tháng 10 lúc 14:30", "5 thg 10, 2025"
+    const mVietDate = s.match(/(\d{1,2})\s*(?:tháng|thg)\s*(\d{1,2})(?:[,\s]+(\d{4}))?/i);
+    if (mVietDate) {
+      const day = parseInt(mVietDate[1], 10);
+      const month = parseInt(mVietDate[2], 10) - 1;
+      const curYear = new Date(now).getFullYear();
+      let year = mVietDate[3] ? parseInt(mVietDate[3], 10) : curYear;
+      const timeMatch = s.match(/(\d{1,2}):(\d{2})/);
+      const hours = timeMatch ? parseInt(timeMatch[1], 10) : 12;
+      const minutes = timeMatch ? parseInt(timeMatch[2], 10) : 0;
+      let d = new Date(year, month, day, hours, minutes, 0);
+      if (d.getTime() > now + 86400 * 1000 && !mVietDate[3]) {
+        d.setFullYear(curYear - 1);
+      }
+      if (!isNaN(d.getTime())) return d.getTime();
+    }
+
+    const parsed = Date.parse(str);
+    if (!isNaN(parsed) && parsed > 0 && parsed <= now + 86400 * 1000) {
+      return parsed;
     }
 
     return now;

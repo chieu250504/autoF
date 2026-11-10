@@ -29,6 +29,21 @@ export async function POST(request: NextRequest) {
     }
 
     if (!account) {
+      // Hỗ trợ đăng nhập tài khoản quản trị mặc định (sử dụng mã PIN gốc)
+      if (username === 'admin' && (password === '250504' || password === 'admin')) {
+        const defaultAdmin = {
+          id: 'default',
+          username: 'admin',
+          displayName: 'Quản trị viên',
+        };
+        const token = generateAuthToken(defaultAdmin);
+        return jsonResponse({
+          success: true,
+          message: 'Đăng nhập thành công',
+          token,
+          account: defaultAdmin,
+        });
+      }
       return errorResponse('Tài khoản không tồn tại trong hệ thống', 401);
     }
 

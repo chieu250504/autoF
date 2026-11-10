@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   FileSpreadsheet,
   Trash2,
@@ -12,6 +12,55 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import { RadarPost } from '../types';
+
+/**
+ * Tính toán thời gian hiển thị tương đối theo phong cách Facebook
+ * (Thời gian hiện tại trừ đi thời gian đăng lưu trong Database)
+ */
+function formatFacebookTime(postTimestamp?: number | string, detectedAt?: string, now: number = Date.now()): string {
+  let postTimeMs = typeof postTimestamp === 'number'
+    ? postTimestamp
+    : parseInt(String(postTimestamp || ''), 10);
+
+  if (isNaN(postTimeMs) || postTimeMs <= 0) {
+    if (detectedAt) {
+      const dt = new Date(detectedAt).getTime();
+      if (!isNaN(dt)) postTimeMs = dt;
+    }
+  }
+
+  if (!postTimeMs || isNaN(postTimeMs)) {
+    return 'Vừa xong';
+  }
+
+  const diffSec = Math.max(0, Math.floor((now - postTimeMs) / 1000));
+
+  if (diffSec < 60) return 'Vừa xong';
+
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} phút trước`;
+
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `${diffHours} giờ trước`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays} ngày trước`;
+
+  const postDate = new Date(postTimeMs);
+  const nowDate = new Date(now);
+
+  const hours = String(postDate.getHours()).padStart(2, '0');
+  const minutes = String(postDate.getMinutes()).padStart(2, '0');
+  const day = String(postDate.getDate()).padStart(2, '0');
+  const month = String(postDate.getMonth() + 1).padStart(2, '0');
+  const year = postDate.getFullYear();
+
+  if (year === nowDate.getFullYear()) {
+    return `${day} thg ${month} lúc ${hours}:${minutes}`;
+  }
+
+  return `${day}/${month}/${year}`;
+}
 
 interface Props {
   posts: RadarPost[];
@@ -32,6 +81,15 @@ export const PostsTable: React.FC<Props> = ({
   const [selectedKeyword, setSelectedKeyword] = useState('all');
   const [selectedGroup, setSelectedGroup] = useState('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [now, setNow] = useState<number>(() => Date.now());
+
+  // Cập nhật lại thời gian tương đối mỗi 30 giây để luôn đúng với thời gian thực
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(Date.now());
+    }, 30000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Danh sách từ khóa và nhóm duy nhất để làm bộ lọc
   const uniqueKeywords = useMemo(() => {
@@ -77,9 +135,10 @@ export const PostsTable: React.FC<Props> = ({
       return;
     }
 
-    const headers = ['STT', 'Thời Gian Phát Hiện', 'Tên Nhóm', 'Từ Khóa Bắt Được', 'Nội Dung Bài Viết', 'Link Bài Viết', 'Link Nhóm'];
+    const headers = ['STT', 'Thời Gian Đăng (Facebook)', 'Thời Gian Quét Được', 'Tên Nhóm', 'Từ Khóa Bắt Được', 'Nội Dung Bài Viết', 'Link Bài Viết', 'Link Nhóm'];
     const rows = filteredPosts.map((p, idx) => [
       idx + 1,
+      p.post_timestamp ? new Date(Number(p.post_timestamp)).toLocaleString('vi-VN') : (p.post_time || ''),
       p.detected_at ? new Date(p.detected_at).toLocaleString('vi-VN') : '',
       `"${(p.group_title || p.group_url || 'Nhóm Facebook').replace(/"/g, '""')}"`,
       `"${(p.matched_keyword || '').replace(/"/g, '""')}"`,
@@ -212,14 +271,7 @@ export const PostsTable: React.FC<Props> = ({
         ) : (
           filteredPosts.map((post, idx) => {
             const isExpanded = expandedId === post.id;
-            const formattedTime = post.detected_at
-              ? new Date(post.detected_at).toLocaleString('vi-VN', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  day: '2-digit',
-                  month: '2-digit',
-                })
-              : '';
+            const displayTime = formatFacebookTime(post.post_timestamp, post.detected_at, now);
 
             return (
               <div key={post.id || idx} className="p-3.5 hover:bg-slate-50 transition space-y-2">
@@ -227,9 +279,9 @@ export const PostsTable: React.FC<Props> = ({
                   <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
                     #{post.matched_keyword}
                   </span>
-                  <div className="flex items-center gap-1 text-[11px] text-slate-500 font-mono">
-                    <Clock className="w-3 h-3 text-slate-400" />
-                    <span>{formattedTime}</span>
+                  <div className="flex items-center gap-1.5 text-[11px] text-slate-700 font-medium font-mono">
+                    <Clock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>{displayTime}</span>
                   </div>
                 </div>
 
@@ -313,13 +365,11 @@ export const PostsTable: React.FC<Props> = ({
             ) : (
               filteredPosts.map((post, idx) => {
                 const isExpanded = expandedId === post.id;
-                const formattedTime = post.detected_at
-                  ? new Date(post.detected_at).toLocaleString('vi-VN', {
+                const displayTime = formatFacebookTime(post.post_timestamp, post.detected_at, now);
+                const scanTime = post.detected_at
+                  ? new Date(post.detected_at).toLocaleTimeString('vi-VN', {
                       hour: '2-digit',
                       minute: '2-digit',
-                      second: '2-digit',
-                      day: '2-digit',
-                      month: '2-digit',
                     })
                   : '';
 
@@ -332,14 +382,16 @@ export const PostsTable: React.FC<Props> = ({
                       {idx + 1}
                     </td>
 
-                    <td className="py-2.5 px-3 text-slate-600 font-mono text-[11px] whitespace-nowrap">
-                      <div className="flex items-center gap-1">
-                        <Clock className="w-3 h-3 text-slate-400 shrink-0" />
-                        <span>{formattedTime}</span>
+                    <td className="py-2.5 px-3 text-slate-700 text-[11px] whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span className="font-semibold text-slate-800">
+                          {displayTime}
+                        </span>
                       </div>
-                      {post.post_time && (
-                        <span className="text-[10px] text-slate-400 block pl-4">
-                          ({post.post_time})
+                      {scanTime && (
+                        <span className="text-[10px] text-slate-400 block pl-5" title="Thời điểm quét phát hiện bài">
+                          Quét: {scanTime}
                         </span>
                       )}
                     </td>

@@ -45,7 +45,6 @@ const scrollSpeedSelect = document.getElementById("scrollSpeed");
 const maxScrollStepsInput = document.getElementById("maxScrollSteps");
 
 const soundEnabledInput = document.getElementById("soundEnabled");
-const desktopNotifyInput = document.getElementById("desktopNotify");
 const tgBotTokenInput = document.getElementById("tgBotToken");
 const tgChatIdInput = document.getElementById("tgChatId");
 const testTelegramBtn = document.getElementById("testTelegramBtn");
@@ -461,9 +460,8 @@ function listenToStorageChanges() {
 
 // Cài đặt thông báo cục bộ
 function loadLocalAlertSettings() {
-  chrome.storage.local.get(["soundEnabled", "desktopNotify", "tgBotToken", "tgChatId"], (res) => {
+  chrome.storage.local.get(["soundEnabled", "tgBotToken", "tgChatId"], (res) => {
     if (soundEnabledInput) soundEnabledInput.checked = res.soundEnabled !== false;
-    if (desktopNotifyInput) desktopNotifyInput.checked = res.desktopNotify !== false;
     if (tgBotTokenInput) tgBotTokenInput.value = res.tgBotToken || "";
     if (tgChatIdInput) tgChatIdInput.value = res.tgChatId || "";
   });
@@ -472,7 +470,6 @@ function loadLocalAlertSettings() {
 function saveLocalAlertSettings() {
   chrome.storage.local.set({
     soundEnabled: soundEnabledInput.checked,
-    desktopNotify: desktopNotifyInput.checked,
     tgBotToken: tgBotTokenInput.value.trim(),
     tgChatId: tgChatIdInput.value.trim()
   }, () => {

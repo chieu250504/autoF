@@ -7,9 +7,6 @@ importScripts("supabase.js");
 
 console.log("%c[FB Radar Background]%c Service worker initialized with Direct Database Sync.", "color: #1877f2; font-weight: bold;", "color: inherit;");
 
-// Map notificationId to postUrl
-const notificationUrls = new Map();
-
 // Hàm đồng bộ cấu hình mới nhất từ Supabase vào extension
 async function syncLatestConfigFromDatabase() {
   try {
@@ -113,44 +110,6 @@ async function sendTelegramAlert(config, post) {
     console.warn("[FB Radar Background] Lỗi mạng khi gửi Telegram:", err);
   }
 }
-
-// Display Desktop Chrome Notification
-function showDesktopNotification(post) {
-  const notifId = "fbradar_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
-  if (post.link) {
-    notificationUrls.set(notifId, post.link);
-  }
-
-  const postTimeInfo = post.postTime ? ` (Đăng: ${post.postTime})` : "";
-  const title = `🎯 FB Radar: [${post.matchedKeyword}]${postTimeInfo}`;
-  const message = `${post.groupTitle ? post.groupTitle + "\n" : ""}${post.text || "Click để mở bài viết"}`;
-
-  chrome.notifications.create(notifId, {
-    type: "basic",
-    iconUrl: "icons/icon128.png",
-    title: title,
-    message: message.substring(0, 200),
-    contextMessage: "FB Group Keyword Radar (Click để mở)",
-    priority: 2,
-    requireInteraction: true
-  }, (createdId) => {
-    if (chrome.runtime.lastError) {
-      console.warn("[FB Radar Background] Lỗi tạo thông báo:", chrome.runtime.lastError);
-    }
-  });
-}
-
-// Open post link when user clicks desktop notification
-chrome.notifications.onClicked.addListener((notifId) => {
-  const url = notificationUrls.get(notifId);
-  if (url) {
-    chrome.tabs.create({ url: url });
-    notificationUrls.delete(notifId);
-  } else {
-    chrome.tabs.create({ url: "https://www.facebook.com" });
-  }
-  chrome.notifications.clear(notifId);
-});
 
 // Build standardized target URL with chronological sort and runner flag
 function buildRunnerUrl(rawUrl) {
@@ -309,9 +268,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     SupabaseClient.savePost(post).catch(() => {});
 
     chrome.storage.local.get(null, (config) => {
-      if (config.desktopNotify !== false) {
-        showDesktopNotification(post);
-      }
       if (config.tgBotToken && config.tgChatId) {
         sendTelegramAlert(config, post);
       }
