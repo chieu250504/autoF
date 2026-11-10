@@ -101,29 +101,66 @@ export async function PATCH(request: NextRequest) {
       updated_at: new Date().toISOString(),
     };
 
+    // Kiểm tra tính hợp lệ dữ liệu nhóm nếu có gửi lên
+    if (updates.groups !== undefined) {
+      if (!Array.isArray(updates.groups)) {
+        return errorResponse('Dữ liệu nhóm không hợp lệ (phải là danh sách)', 400);
+      }
+      payload.groups = updates.groups;
+    }
+
+    // Kiểm tra tính hợp lệ từ khóa nếu có gửi lên
+    if (updates.keywords !== undefined) {
+      if (!Array.isArray(updates.keywords)) {
+        return errorResponse('Dữ liệu từ khóa không hợp lệ (phải là danh sách)', 400);
+      }
+      payload.keywords = updates.keywords;
+    }
+
+    // Các trường cấu hình khác
     for (const field of allowedFields) {
-      if (updates[field] !== undefined) {
+      if (field !== 'groups' && field !== 'keywords' && updates[field] !== undefined) {
         payload[field] = updates[field];
       }
     }
 
-    const { data, error } = await supabase
+    // BẢO VỆ DỮ LIỆU: Dùng UPDATE theo account_id để không bao giờ ghi đè các cột khác
+    const { data: updated, error: updateError } = await supabase
       .from('fbradar_account_config')
-      .upsert({
-        account_id: account.id,
-        ...payload
-      }, { onConflict: 'account_id' })
+      .update(payload)
+      .eq('account_id', account.id)
       .select()
       .maybeSingle();
 
-    if (error) {
-      return errorResponse(`Lỗi cập nhật cấu hình tài khoản: ${error.message}`, 500);
+    if (updateError) {
+      return errorResponse(`Lỗi cập nhật cấu hình tài khoản: ${updateError.message}`, 500);
+    }
+
+    let finalData = updated;
+    // Nếu tài khoản mới tinh chưa có bản ghi, mới tạo mới
+    if (!finalData) {
+      const { data: inserted, error: insertError } = await supabase
+        .from('fbradar_account_config')
+        .insert({
+          account_id: account.id,
+          enabled: true,
+          keywords: ['tuyển dụng', 'báo giá'],
+          groups: [],
+          ...payload,
+        })
+        .select()
+        .maybeSingle();
+
+      if (insertError) {
+        return errorResponse(`Lỗi khởi tạo cấu hình: ${insertError.message}`, 500);
+      }
+      finalData = inserted;
     }
 
     return jsonResponse({
       success: true,
       message: 'Cập nhật cấu hình tài khoản thành công',
-      data,
+      data: finalData,
     });
   } catch (err: any) {
     return errorResponse(err?.message || 'Lỗi server khi cập nhật cấu hình', 500);

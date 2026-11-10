@@ -125,6 +125,12 @@ export const App: React.FC = () => {
 
   // Cập nhật từ khóa của tài khoản
   const handleSaveKeywords = async (newKeywords: string[]) => {
+    try {
+      if (currentUser?.id) {
+        localStorage.setItem(`fbradar_keywords_backup_${currentUser.id}`, JSON.stringify(newKeywords));
+      }
+    } catch {}
+
     const res = await updateConfig({ keywords: newKeywords });
     if (res.success && res.data) {
       setConfig((prev) => (prev ? { ...prev, keywords: newKeywords } : res.data!));
@@ -133,8 +139,14 @@ export const App: React.FC = () => {
     }
   };
 
-  // Cập nhật danh sách nhóm của tài khoản
+  // Cập nhật danh sách nhóm của tài khoản (kèm bản sao lưu bảo vệ dữ liệu)
   const handleSaveGroups = async (newGroups: GroupConfig[]) => {
+    try {
+      if (currentUser?.id) {
+        localStorage.setItem(`fbradar_groups_backup_${currentUser.id}`, JSON.stringify(newGroups));
+      }
+    } catch {}
+
     const res = await updateConfig({ groups: newGroups });
     if (res.success && res.data) {
       setConfig((prev) => (prev ? { ...prev, groups: newGroups } : res.data!));
