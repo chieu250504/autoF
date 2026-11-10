@@ -141,19 +141,28 @@ const PostExtractor = {
   isCommentElement(el) {
     if (!el) return true;
 
+    // 0. Nếu phần tử chứa story_message chính thức của Facebook -> 100% là BÀI VIẾT, KHÔNG PHẢI BÌNH LUẬN!
+    if (el.querySelector && el.querySelector('[data-ad-rendering-role="story_message"], [data-ad-preview="message"], [data-ad-comet-preview="message"]')) {
+      return false;
+    }
+
     // 1. Nếu el nằm bên trong một [role="article"] khác -> Chắc chắn là bình luận con
     if (el.parentElement && el.parentElement.closest('[role="article"]')) {
       return true;
     }
 
-    // 2. Kiểm tra aria-label của chính article (Facebook đặt "Bình luận của X..." hoặc "Comment by X...")
+    // 2. Kiểm tra aria-label của chính article hoặc con trực tiếp
     const ariaLabel = (el.getAttribute("aria-label") || "").toLowerCase();
     if (
       ariaLabel.includes("bình luận của") ||
+      ariaLabel.includes("bình luận bởi") ||
+      ariaLabel.includes("bình luận cho") ||
       ariaLabel.includes("comment by") ||
+      ariaLabel.includes("comment on") ||
       ariaLabel.includes("phản hồi của") ||
       ariaLabel.includes("reply by") ||
-      ariaLabel.includes("câu trả lời của")
+      ariaLabel.includes("câu trả lời của") ||
+      ariaLabel.includes("viết câu trả lời")
     ) {
       return true;
     }
@@ -163,41 +172,97 @@ const PostExtractor = {
       return true;
     }
 
-    // 4. Nếu có link chứa comment_id nhưng KHÔNG HỀ có bất kỳ link bài viết gốc nào
-    const allLinks = Array.from(el.querySelectorAll("a[href]"));
-    const hasPostLink = allLinks.some(a => {
-      const h = a.getAttribute("href") || a.href || "";
-      return h.includes("/posts/") || h.includes("/permalink/") || h.includes("multi_permalinks=") || h.includes("story_fbid=");
-    });
+    // 4. Nằm trong danh sách bình luận (ul) hoặc vùng ignore-dynamic (vùng tương tác/bình luận dưới bài viết)
+    if (el.closest('ul') || el.closest('[data-visualcompletion="ignore-dynamic"]')) {
+      return true;
+    }
+
+    // 5. Kiểm tra link chứa comment_id:
+    // Link bình luận của Facebook luôn chứa comment_id= hoặc reply_comment_id=
+    const allLinks = Array.from(el.querySelectorAll ? el.querySelectorAll("a[href]") : []);
     const hasCommentLink = allLinks.some(a => {
       const h = a.getAttribute("href") || a.href || "";
       return h.includes("comment_id=") || h.includes("reply_comment_id=");
     });
+    if (hasCommentLink) {
+      return true;
+    }
 
-    if (hasCommentLink && !hasPostLink) {
+    // 6. Kiểm tra các nút hành động đặc thù chỉ có ở bình luận (Phản hồi / Reply)
+    const buttons = Array.from(el.querySelectorAll ? el.querySelectorAll('[role="button"]') : []);
+    const hasReplyAction = buttons.some(btn => {
+      const t = (btn.innerText || btn.textContent || "").toLowerCase().trim();
+      return t === "phản hồi" || t === "reply" || t === "viết phản hồi";
+    });
+    if (hasReplyAction && !el.querySelector('[data-ad-rendering-role="like_button"], [role="toolbar"]')) {
       return true;
     }
 
     return false;
   },
 
+  /**
+   * Tìm phần tử bài viết bao ngoài từ một phần tử con (như story_message)
+   */
+  findEnclosingPost(startEl, feed) {
+    if (!startEl) return null;
+    let curr = startEl;
+    let candidate = startEl;
+
+    while (curr && curr !== document.body && curr !== feed) {
+      if (curr.getAttribute && curr.getAttribute("role") === "article" && !this.isCommentElement(curr)) {
+        return curr;
+      }
+      if (curr.querySelector && curr.querySelector('[data-ad-rendering-role="like_button"], [role="toolbar"]')) {
+        candidate = curr;
+      }
+      if (feed && curr.parentElement === feed) {
+        return curr;
+      }
+      curr = curr.parentElement;
+    }
+    return candidate;
+  },
+
   getPostElements() {
     const feed = this.getFeedContainer();
-    let rawArticles = [];
+    const candidatePosts = new Set();
 
-    if (feed) {
-      const articles = feed.querySelectorAll('[role="article"]');
-      if (articles.length > 0) {
-        rawArticles = Array.from(articles);
-      } else {
-        rawArticles = Array.from(feed.children).filter(el => el.offsetHeight > 100);
+    // CHIẾN LƯỢC 1 (Chính xác nhất trên Facebook Comet mới):
+    // Tìm trực tiếp các container nội dung bài đăng chính thức của Facebook
+    const storyMessages = Array.from((feed || document).querySelectorAll(
+      '[data-ad-rendering-role="story_message"], ' +
+      '[data-ad-preview="message"], ' +
+      '[data-ad-comet-preview="message"]'
+    ));
+
+    for (const msgEl of storyMessages) {
+      const postCard = this.findEnclosingPost(msgEl, feed);
+      if (postCard && !this.isCommentElement(postCard)) {
+        candidatePosts.add(postCard);
       }
-    } else {
-      rawArticles = Array.from(document.querySelectorAll('[role="article"]'));
     }
 
-    // LỌC: CHỈ LẤY BÀI VIẾT GỐC (POSTS), BỎ CÁC BÌNH LUẬN NẰM LỒNG
-    return rawArticles.filter(el => !this.isCommentElement(el));
+    // CHIẾN LƯỢC 2: Tìm các thẻ [role="article"] tiêu chuẩn (cho bài chia sẻ / ảnh / video không có story_message)
+    const rawArticles = Array.from((feed || document).querySelectorAll('[role="article"]'));
+    for (const art of rawArticles) {
+      if (!this.isCommentElement(art)) {
+        candidatePosts.add(art);
+      }
+    }
+
+    // CHIẾN LƯỢC 3: Nếu feed có các khối con trực tiếp có chiều cao lớn
+    if (candidatePosts.size === 0 && feed) {
+      const feedChildren = Array.from(feed.children).filter(el => el.offsetHeight > 120);
+      for (const child of feedChildren) {
+        if (!this.isCommentElement(child)) {
+          candidatePosts.add(child);
+        }
+      }
+    }
+
+    // LỌC TUYỆT ĐỐI: CHỈ LẤY BÀI VIẾT GỐC (POSTS), BỎ 100% CÁC BÌNH LUẬN
+    return Array.from(candidatePosts).filter(el => !this.isCommentElement(el));
   },
 
   /**
@@ -206,54 +271,68 @@ const PostExtractor = {
   extractPostContent(postEl) {
     if (!postEl) return "";
 
-    // Cách 1: Thử lấy qua thuộc tính chuẩn của Facebook cho nội dung bài đăng chính
-    const officialMsg = postEl.querySelector('[data-ad-preview="message"], [data-ad-comet-preview="message"]');
+    // ƯU TIÊN 1 (CHUẨN XÁC 100%): Trích xuất TRỰC TIẾP từ story_message hoặc message preview
+    // Vì Facebook cô lập phần Caption bài viết trong container này,
+    // bình luận KHÔNG BAO GIỜ nằm trong story_message!
+    const officialMsg = postEl.querySelector('[data-ad-rendering-role="story_message"]') ||
+                        postEl.querySelector('[data-ad-preview="message"], [data-ad-comet-preview="message"]');
     if (officialMsg) {
       const msgText = officialMsg.innerText || officialMsg.textContent || "";
-      if (msgText.trim().length > 3) {
-        return TextNormalizer.cleanText(msgText);
+      const cleaned = TextNormalizer.cleanText(msgText);
+      if (cleaned.length > 2) {
+        return cleaned;
       }
     }
 
-    // Cách 2: Lấy các thẻ div[dir="auto"]
+    // ƯU TIÊN 2: Bóc tách qua các thẻ div[dir="auto"] với RANH GIỚI BÌNH LUẬN NGHIÊM NGẶT
     const textNodes = Array.from(postEl.querySelectorAll('div[dir="auto"]'));
     if (textNodes.length === 0) {
       return TextNormalizer.cleanText(postEl.innerText || "");
     }
 
-    // Xác định RANH GIỚI BÌNH LUẬN: Thanh công cụ tương tác (Thích, Bình luận, Chia sẻ) hoặc comment box
-    // LƯU Ý: TUYỆT ĐỐI KHÔNG thêm 'ul' hay các selector của Header vào đây vì sẽ loại bỏ nhầm bài viết!
+    // RANH GIỚI BÌNH LUẬN TUYỆT ĐỐI:
+    // Mọi phần tử nằm trong hoặc SAU các nút Like/Bình luận/Chia sẻ, Toolbar, form, hoặc ul bình luận ĐỀU BỊ LOẠI BỎ!
     const commentBoundary = postEl.querySelector(
+      '[data-ad-rendering-role="like_button"], ' +
+      '[data-ad-rendering-role="comment_button"], ' +
+      '[data-ad-rendering-role="share_button"], ' +
       '[role="toolbar"], ' +
       'form, ' +
+      'ul, ' +
+      'div[data-visualcompletion="ignore-dynamic"], ' +
       'div[aria-label*="Bình luận dưới tên" i], ' +
       'div[aria-label*="Viết bình luận" i], ' +
-      'div[aria-label*="Write a comment" i]'
+      'div[aria-label*="bình luận" i], ' +
+      'div[aria-label*="comment" i]'
     );
 
     const contentParts = [];
 
-    textNodes.forEach(node => {
+    for (const node of textNodes) {
       // 1. Bỏ nếu node nằm trong một article con (chính là bình luận)
-      if (node.closest('[role="article"]') !== postEl) {
-        return;
+      const parentArticle = node.closest('[role="article"]');
+      if (parentArticle && parentArticle !== postEl) {
+        continue;
       }
 
-      // 2. Bỏ nếu node nằm trong form, nút bấm hoặc toolbar
-      if (node.closest('form, [role="button"], button, [role="toolbar"]')) {
-        return;
+      // 2. Bỏ nếu node nằm trong form, nút bấm, toolbar, danh sách bình luận hoặc vùng động
+      if (node.closest('form, [role="button"], button, [role="toolbar"], ul, [data-visualcompletion="ignore-dynamic"]')) {
+        continue;
       }
 
-      // 3. Bỏ nếu node nằm trong container bình luận cụ thể
-      if (node.closest('div[aria-label*="bình luận của" i], div[aria-label*="comment by" i]')) {
-        return;
+      // 3. Bỏ nếu node nằm trong container có aria-label liên quan đến bình luận
+      if (node.closest('div[aria-label*="bình luận" i], div[aria-label*="comment" i], div[aria-label*="phản hồi" i]')) {
+        continue;
       }
 
       // 4. Bỏ nếu node nằm SAU hoặc BÊN TRONG ranh giới bình luận (commentBoundary)
       if (commentBoundary) {
+        if (commentBoundary.contains(node)) {
+          continue;
+        }
         const position = commentBoundary.compareDocumentPosition(node);
-        if ((position & Node.DOCUMENT_POSITION_FOLLOWING) || (position & Node.DOCUMENT_POSITION_CONTAINED_BY)) {
-          return;
+        if (position & Node.DOCUMENT_POSITION_FOLLOWING) {
+          continue;
         }
       }
 
@@ -262,19 +341,23 @@ const PostExtractor = {
       if (txt.length > 2) {
         contentParts.push(txt);
       }
-    });
+    }
 
     // 5. CƠ CHẾ AN TOÀN (FALLBACK): Nếu do ranh giới mà contentParts bị rỗng,
-    // quét lại text các div[dir="auto"] chính (loại bỏ nút bấm và article con) để không bao giờ bỏ sót bài viết!
+    // chỉ lấy text TRƯỚC ranh giới bình luận để không bao giờ bỏ sót bài viết!
     if (contentParts.length === 0) {
-      textNodes.forEach(node => {
-        if (node.closest('[role="article"]') !== postEl) return;
-        if (node.closest('form, [role="button"], button, [role="toolbar"]')) return;
+      for (const node of textNodes) {
+        const parentArticle = node.closest('[role="article"]');
+        if (parentArticle && parentArticle !== postEl) continue;
+        if (node.closest('form, [role="button"], button, [role="toolbar"], ul, [data-visualcompletion="ignore-dynamic"]')) continue;
+        if (commentBoundary && (commentBoundary.contains(node) || (commentBoundary.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING))) {
+          continue;
+        }
         const txt = (node.innerText || node.textContent || "").trim();
         if (txt.length > 3) {
           contentParts.push(txt);
         }
-      });
+      }
     }
 
     return TextNormalizer.cleanText(contentParts.join("\n"));
@@ -286,8 +369,23 @@ const PostExtractor = {
     let postLink = null;
     let postId = null;
 
-    const linkElements = postEl.querySelectorAll('a[href*="/posts/"], a[href*="/permalink/"], a[href*="multi_permalinks="], a[href*="story_fbid="]');
-    for (const a of linkElements) {
+    // Ranh giới bình luận để tránh nhầm link bình luận bên dưới bài viết
+    const commentBoundary = postEl.querySelector(
+      '[data-ad-rendering-role="like_button"], [role="toolbar"], form, ul, [data-visualcompletion="ignore-dynamic"]'
+    );
+
+    const rawLinks = Array.from(postEl.querySelectorAll('a[href*="/posts/"], a[href*="/permalink/"], a[href*="multi_permalinks="], a[href*="story_fbid="]'));
+    // Ưu tiên các link nằm TRƯỚC ranh giới bình luận (link tiêu đề / thời gian đăng bài)
+    const linkElements = rawLinks.filter(a => {
+      if (commentBoundary && (commentBoundary.contains(a) || (commentBoundary.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING))) {
+        return false;
+      }
+      return true;
+    });
+
+    const linksToScan = linkElements.length > 0 ? linkElements : rawLinks;
+
+    for (const a of linksToScan) {
       const href = a.getAttribute("href") || a.href;
       if (!href) continue;
 
