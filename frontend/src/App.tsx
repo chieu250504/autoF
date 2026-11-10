@@ -123,34 +123,44 @@ export const App: React.FC = () => {
     }
   };
 
-  // Cập nhật từ khóa của tài khoản
+  // Cập nhật từ khóa của tài khoản: Cập nhật giao diện TỨC THÌ (0ms)
   const handleSaveKeywords = async (newKeywords: string[]) => {
+    const prevKeywords = config?.keywords || [];
+    // 1. Cập nhật state ngay lập tức để giao diện hiển thị 0ms không độ trễ
+    setConfig((prev) => (prev ? { ...prev, keywords: newKeywords } : prev));
+
     try {
       if (currentUser?.id) {
         localStorage.setItem(`fbradar_keywords_backup_${currentUser.id}`, JSON.stringify(newKeywords));
       }
     } catch {}
 
+    // 2. Gửi request đồng bộ ngầm lên server
     const res = await updateConfig({ keywords: newKeywords });
-    if (res.success && res.data) {
-      setConfig((prev) => (prev ? { ...prev, keywords: newKeywords } : res.data!));
-    } else if (res.error) {
+    if (!res.success) {
+      // Khôi phục lại nếu có lỗi mạng
+      setConfig((prev) => (prev ? { ...prev, keywords: prevKeywords } : prev));
       alert(`Lỗi: ${res.error}`);
     }
   };
 
-  // Cập nhật danh sách nhóm của tài khoản (kèm bản sao lưu bảo vệ dữ liệu)
+  // Cập nhật danh sách nhóm của tài khoản: Cập nhật giao diện TỨC THÌ (0ms)
   const handleSaveGroups = async (newGroups: GroupConfig[]) => {
+    const prevGroups = config?.groups || [];
+    // 1. Cập nhật state ngay lập tức để nhóm biến mất/thêm mới ngay 0ms
+    setConfig((prev) => (prev ? { ...prev, groups: newGroups } : prev));
+
     try {
       if (currentUser?.id) {
         localStorage.setItem(`fbradar_groups_backup_${currentUser.id}`, JSON.stringify(newGroups));
       }
     } catch {}
 
+    // 2. Gửi request đồng bộ ngầm lên server
     const res = await updateConfig({ groups: newGroups });
-    if (res.success && res.data) {
-      setConfig((prev) => (prev ? { ...prev, groups: newGroups } : res.data!));
-    } else if (res.error) {
+    if (!res.success) {
+      // Khôi phục lại nếu có lỗi mạng
+      setConfig((prev) => (prev ? { ...prev, groups: prevGroups } : prev));
       alert(`Lỗi: ${res.error}`);
     }
   };

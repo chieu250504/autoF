@@ -1,6 +1,26 @@
 import { RadarConfig, RadarPost, UserAccount } from '../types';
 
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+const CLOUD_API_FALLBACK = 'https://auto-f.vercel.app/api';
+let activeApiBase = import.meta.env.VITE_API_URL || '/api';
+
+/**
+ * Gửi request với cơ chế tự động chuyển sang Cloud API nếu mạng cục bộ bị ngắt kết nối
+ */
+async function requestWithFallback(path: string, options: RequestInit = {}): Promise<Response> {
+  const primaryUrl = `${activeApiBase}${path}`;
+  try {
+    const res = await fetch(primaryUrl, options);
+    return res;
+  } catch (err: any) {
+    // Nếu local API chưa bật hoặc bị Failed to fetch, tự động chuyển sang Cloud Backend Vercel
+    if (activeApiBase !== CLOUD_API_FALLBACK) {
+      console.warn(`[API] Lỗi kết nối tới ${primaryUrl}, tự động chuyển sang Cloud API: ${CLOUD_API_FALLBACK}`);
+      activeApiBase = CLOUD_API_FALLBACK;
+      return await fetch(`${CLOUD_API_FALLBACK}${path}`, options);
+    }
+    throw err;
+  }
+}
 
 export function getStoredToken(): string {
   return localStorage.getItem('fbradar_token') || '';
@@ -64,7 +84,7 @@ async function parseResponse<T = any>(res: Response): Promise<{ success: boolean
 
 export async function login(username: string, password: string): Promise<{ success: boolean; account?: UserAccount; error?: string }> {
   try {
-    const res = await fetch(`${API_BASE}/auth/login`, {
+    const res = await requestWithFallback('/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
@@ -82,7 +102,7 @@ export async function login(username: string, password: string): Promise<{ succe
 
 export async function fetchConfig(): Promise<RadarConfig | null> {
   try {
-    const res = await fetch(`${API_BASE}/config`, {
+    const res = await requestWithFallback('/config', {
       headers: getAuthHeaders(),
     });
     const json = await parseResponse<RadarConfig>(res);
@@ -98,7 +118,7 @@ export async function fetchConfig(): Promise<RadarConfig | null> {
 
 export async function updateConfig(updates: Partial<RadarConfig>): Promise<{ success: boolean; data?: RadarConfig; error?: string }> {
   try {
-    const res = await fetch(`${API_BASE}/config`, {
+    const res = await requestWithFallback('/config', {
       method: 'PATCH',
       headers: getAuthHeaders(),
       body: JSON.stringify(updates),
@@ -130,7 +150,7 @@ export async function fetchPosts(params?: {
     if (params?.search) query.set('search', params.search);
     if (user?.id) query.set('account_id', user.id);
 
-    const res = await fetch(`${API_BASE}/posts?${query.toString()}`, {
+    const res = await requestWithFallback(`/posts?${query.toString()}`, {
       headers: getAuthHeaders(),
     });
     const json = await parseResponse<RadarPost[]>(res);
@@ -150,7 +170,7 @@ export async function deletePost(id?: string, deleteAll?: boolean): Promise<bool
     if (deleteAll) query.set('all', 'true');
     else if (id) query.set('id', id);
 
-    const res = await fetch(`${API_BASE}/posts?${query.toString()}`, {
+    const res = await requestWithFallback(`/posts?${query.toString()}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });

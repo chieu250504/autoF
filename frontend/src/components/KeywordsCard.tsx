@@ -7,11 +7,10 @@ interface Props {
   loading: boolean;
 }
 
-export const KeywordsCard: React.FC<Props> = ({ keywords, onSave, loading }) => {
+export const KeywordsCard: React.FC<Props> = ({ keywords, onSave }) => {
   const [input, setInput] = useState('');
-  const [saving, setSaving] = useState(false);
 
-  const handleAdd = async (e?: React.FormEvent) => {
+  const handleAdd = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const trimmed = input.trim();
     if (!trimmed) return;
@@ -21,17 +20,15 @@ export const KeywordsCard: React.FC<Props> = ({ keywords, onSave, loading }) => 
     }
 
     const nextKeywords = [...keywords, trimmed];
-    setSaving(true);
-    await onSave(nextKeywords);
-    setSaving(false);
     setInput('');
+    // Gọi lưu (App.tsx sẽ cập nhật UI tức thì 0ms)
+    onSave(nextKeywords);
   };
 
-  const handleRemove = async (kw: string) => {
+  const handleRemove = (kw: string) => {
     const nextKeywords = keywords.filter((k) => k !== kw);
-    setSaving(true);
-    await onSave(nextKeywords);
-    setSaving(false);
+    // Gọi xóa (App.tsx sẽ cập nhật UI tức thì 0ms)
+    onSave(nextKeywords);
   };
 
   return (
@@ -65,7 +62,7 @@ export const KeywordsCard: React.FC<Props> = ({ keywords, onSave, loading }) => 
           </div>
           <button
             type="submit"
-            disabled={saving || loading || !input.trim()}
+            disabled={!input.trim()}
             className="flex items-center gap-1 px-3.5 py-2 bg-teal-600 hover:bg-teal-700 active:bg-teal-800 disabled:opacity-40 text-white rounded-xl text-xs font-semibold transition shadow-xs shrink-0"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -89,7 +86,6 @@ export const KeywordsCard: React.FC<Props> = ({ keywords, onSave, loading }) => 
                 <button
                   type="button"
                   onClick={() => handleRemove(kw)}
-                  disabled={saving || loading}
                   className="text-teal-400 hover:text-rose-600 transition p-0.5"
                   title="Xóa từ khóa"
                 >

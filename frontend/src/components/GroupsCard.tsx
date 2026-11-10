@@ -76,30 +76,27 @@ export const GroupsCard: React.FC<Props> = ({
       updatedGroups.push(groupData);
     }
 
-    setSaving(true);
-    await onSave(updatedGroups);
-    setSaving(false);
+    // Cập nhật ngay lập tức 0ms
+    onSave(updatedGroups);
     resetForm();
   };
 
-  const handleToggleGroup = async (idx: number) => {
+  const handleToggleGroup = (idx: number) => {
     const updated = [...groups];
     updated[idx] = {
       ...updated[idx],
       enabled: !(updated[idx].enabled ?? true),
     };
-    setSaving(true);
-    await onSave(updated);
-    setSaving(false);
+    // Cập nhật ngay lập tức 0ms
+    onSave(updated);
   };
 
-  const handleDeleteGroup = async (idx: number) => {
+  const handleDeleteGroup = (idx: number) => {
     const displayName = groups[idx].name || groups[idx].url;
     if (!window.confirm(`Bạn có chắc muốn xóa nhóm "${displayName}"?`)) return;
     const updated = groups.filter((_, i) => i !== idx);
-    setSaving(true);
-    await onSave(updated);
-    setSaving(false);
+    // Cập nhật ngay lập tức 0ms
+    onSave(updated);
   };
 
   return (
