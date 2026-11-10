@@ -83,7 +83,7 @@ export const App: React.FC = () => {
       )
       .subscribe();
 
-    // Realtime channel cho nhịp tim Tab Treo (fbradar_config)
+    // Realtime channel cho nhịp tim Tab Treo và trạng thái Bật/Tắt (fbradar_config & fbradar_account_config)
     const runnerChannel = supabase
       .channel('public:fbradar_runner_status')
       .on(
@@ -93,10 +93,21 @@ export const App: React.FC = () => {
           const updated = payload.new as any;
           setConfig((prev) => (prev ? {
             ...prev,
+            enabled: updated.enabled !== undefined ? Boolean(updated.enabled) : prev.enabled,
             runner_status: updated.runner_status,
             current_running_group: updated.current_running_group,
             last_heartbeat: updated.last_heartbeat,
           } : prev));
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'fbradar_account_config', filter: `account_id=eq.${currentUser.id}` },
+        (payload) => {
+          const updated = payload.new as any;
+          if (updated && updated.enabled !== undefined) {
+            setConfig((prev) => (prev ? { ...prev, enabled: Boolean(updated.enabled) } : prev));
+          }
         }
       )
       .subscribe();

@@ -865,12 +865,12 @@ const RadarEngine = {
       SupabaseClient.sendHeartbeat(reason, window.location.href).catch(() => {});
     }
 
-    // Bật chế độ thăm dò standby mỗi 10 giây để đón lệnh BẬT từ xa
+    // Bật chế độ thăm dò standby mỗi 3 giây để đón lệnh BẬT từ Web Dashboard tức thì
     if (!this.standbyPollTimerId) {
       this.standbyPollTimerId = setInterval(async () => {
         if (!this.isRunnerTab) return;
         await this.syncWithCloud();
-      }, 10000);
+      }, 3000);
     }
   },
 
@@ -1441,12 +1441,25 @@ const RadarEngine = {
       <span id="fb-radar-status-text">FB Radar: Đang tải...</span>
     `;
 
-    // Click vào badge: nếu tab thường thì cho phép biến thành tab treo
+    // Click vào badge: nếu tab thường thì cho phép biến thành tab treo; nếu tab treo thì bật/tắt quét
     badge.addEventListener("click", () => {
       if (!this.isRunnerTab) {
         if (confirm("Bạn có muốn đặt tab này làm Tab Treo Giám Sát luân phiên không?")) {
           badge.style.background = "rgba(24, 119, 242, 0.94)";
           this.setAsRunnerTab();
+        }
+      } else {
+        // Tab Treo: Cho phép Bật / Tạm dừng trực tiếp khi click
+        if (this.isRunning) {
+          this.pauseByRemote("Đã tạm dừng (Click Tab Treo)");
+          if (typeof SupabaseClient !== "undefined") {
+            SupabaseClient.setMasterEnabled(false).catch(() => {});
+          }
+        } else {
+          this.resumeByRemote();
+          if (typeof SupabaseClient !== "undefined") {
+            SupabaseClient.setMasterEnabled(true).catch(() => {});
+          }
         }
       }
     });

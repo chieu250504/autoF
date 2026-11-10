@@ -16,10 +16,10 @@ export async function GET(request: NextRequest) {
     const account = getAccountFromRequest(request);
     const accountId = account ? account.id : 'user1'; // Mặc định user1 nếu chưa truyền token
 
-    // 1. Lấy trạng thái Tab Treo toàn cục (runner_status, heartbeat) từ fbradar_config
+    // 1. Lấy trạng thái Tab Treo toàn cục (runner_status, heartbeat, enabled) từ fbradar_config
     const { data: globalState } = await supabase
       .from('fbradar_config')
-      .select('runner_status, current_running_group, last_heartbeat, updated_at')
+      .select('enabled, runner_status, current_running_group, last_heartbeat, updated_at')
       .eq('id', 'default')
       .maybeSingle();
 
@@ -58,11 +58,17 @@ export async function GET(request: NextRequest) {
       configData = inserted || defaultData;
     }
 
+    // Trạng thái quét thực tế: Master switch fbradar_config và tài khoản đều phải bật
+    const isMasterEnabled = globalState?.enabled !== false;
+    const isAccountEnabled = configData.enabled !== false;
+    const effectiveEnabled = Boolean(isMasterEnabled && isAccountEnabled);
+
     return jsonResponse({
       success: true,
       account_id: accountId,
       data: {
         ...configData,
+        enabled: effectiveEnabled,
         // Kèm trạng thái Tab Treo chung của toàn hệ thống
         runner_status: globalState?.runner_status || 'Chưa chạy',
         current_running_group: globalState?.current_running_group || null,
@@ -122,6 +128,40 @@ export async function PATCH(request: NextRequest) {
       if (field !== 'groups' && field !== 'keywords' && updates[field] !== undefined) {
         payload[field] = updates[field];
       }
+    }
+
+    // Nếu có thay đổi trạng thái BẬT/TẮT quét (enabled)
+    if (updates.enabled !== undefined) {
+      const isEnabled = Boolean(updates.enabled);
+
+      // Nếu muốn BẬT quét: kiểm tra xem có trình duyệt / Tab Treo nào đang Online không
+      if (isEnabled) {
+        const { data: globalState } = await supabase
+          .from('fbradar_config')
+          .select('last_heartbeat, runner_status')
+          .eq('id', 'default')
+          .maybeSingle();
+
+        const last = globalState?.last_heartbeat ? new Date(globalState.last_heartbeat).getTime() : 0;
+        const isOnline = last > 0 && (Date.now() - last) <= 150000; // 2.5 phút
+
+        if (!isOnline) {
+          return errorResponse(
+            'Không thể bật quét: Hiện tại không có trình duyệt hoặc Tab Treo nào đang hoạt động! Vui lòng mở Facebook trên Google Chrome và nhấn BẬT QUÉT trên Extension trước.',
+            400
+          );
+        }
+      }
+
+      // Cập nhật ngay vào bảng tổng fbradar_config để Extension nhận lệnh ngay lập tức
+      await supabase
+        .from('fbradar_config')
+        .update({
+          enabled: isEnabled,
+          updated_at: new Date().toISOString(),
+          ...(isEnabled ? { runner_status: 'Đang bắt đầu quét...' } : { runner_status: 'Đã tạm dừng từ Web Dashboard' })
+        })
+        .eq('id', 'default');
     }
 
     // BẢO VỆ DỮ LIỆU: Dùng UPDATE theo account_id để không bao giờ ghi đè các cột khác

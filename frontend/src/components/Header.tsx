@@ -23,8 +23,18 @@ export const Header: React.FC<Props> = ({ currentUser, config, onToggleEnabled, 
 
   const handleToggle = async () => {
     if (!config || toggling) return;
+
+    const willTurnOn = !config.enabled;
+    // Nếu muốn BẬT nhưng không có Tab Treo nào đang Online -> Báo lỗi ngay
+    if (willTurnOn && !isTabOnline) {
+      alert(
+        "⚠️ Không thể bật quét:\n\nHiện tại không có trình duyệt hoặc Tab Treo nào đang hoạt động!\nVui lòng mở Facebook trên Google Chrome và nhấn 'BẮT ĐẦU QUÉT' trên Extension trước."
+      );
+      return;
+    }
+
     setToggling(true);
-    await onToggleEnabled(!config.enabled);
+    await onToggleEnabled(willTurnOn);
     setToggling(false);
   };
 
