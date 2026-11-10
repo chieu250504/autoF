@@ -147,6 +147,10 @@ const SupabaseClient = {
    */
   async pullAggregatedRunnerConfig() {
     try {
+      // Đọc trạng thái công tắc tổng fbradar_config
+      const masterConfig = await this.pullConfig();
+      const isMasterConfigEnabled = masterConfig ? Boolean(masterConfig.enabled) : true;
+
       const res = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/fbradar_account_config?enabled=eq.true&select=*`, {
         headers: {
           ...this.getHeaders(),
@@ -271,7 +275,7 @@ const SupabaseClient = {
       }
 
       return {
-        enabled: hasActiveTargets && activeConfigs.length > 0,
+        enabled: isMasterConfigEnabled && hasActiveTargets && activeConfigs.length > 0,
         accounts: activeConfigs.map(a => a.account_id),
         groups: mergedGroups,
         allKeywords: Array.from(globalKeywordsSet),
@@ -342,25 +346,41 @@ const SupabaseClient = {
   async setMasterEnabled(enabled) {
     try {
       const now = new Date().toISOString();
+      const headers = this.getHeaders();
+
+      // 1. Cập nhật bảng tổng fbradar_config
+      const configPayload = {
+        enabled: !!enabled,
+        updated_at: now
+      };
+      if (!enabled) {
+        configPayload.runner_status = "Đã dừng quét";
+        configPayload.current_running_group = null;
+      }
+
       await fetch(`${SUPABASE_CONFIG.url}/rest/v1/fbradar_config?id=eq.default`, {
         method: "PATCH",
-        headers: this.getHeaders(),
+        headers: headers,
+        body: JSON.stringify(configPayload)
+      });
+
+      // 2. Cập nhật tất cả các tài khoản trong fbradar_account_config (PostgREST bắt buộc phải có WHERE clause: ?account_id=neq.)
+      const resAccount = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/fbradar_account_config?account_id=neq.`, {
+        method: "PATCH",
+        headers: headers,
         body: JSON.stringify({
           enabled: !!enabled,
           updated_at: now
         })
       });
 
-      await fetch(`${SUPABASE_CONFIG.url}/rest/v1/fbradar_account_config`, {
-        method: "PATCH",
-        headers: this.getHeaders(),
-        body: JSON.stringify({
-          enabled: !!enabled,
-          updated_at: now
-        })
-      });
+      if (!resAccount.ok) {
+        console.warn("[Supabase] Lỗi cập nhật fbradar_account_config:", await resAccount.text());
+      }
+
       return true;
     } catch (e) {
+      console.warn("[Supabase] Lỗi cập nhật setMasterEnabled:", e);
       return false;
     }
   }

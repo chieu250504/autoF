@@ -164,17 +164,80 @@ async function refreshDatabaseOverview(showNotification = false) {
     // 2. Kéo danh sách tất cả tài khoản
     const allAccounts = await SupabaseClient.fetchAllAccountConfigs();
     // 3. Đọc trạng thái runnerTab hiện tại từ local storage
-    const localStored = await new Promise(r => chrome.storage.local.get(["runnerStatus", "currentRunningGroup"], r));
+    const localStored = await new Promise(r => chrome.storage.local.get(["runnerStatus", "currentRunningGroup", "runnerTabId", "enabled"], r));
+
+    // 4. Kiểm tra xem Tab Treo có thực sự đang mở trên trình duyệt hay không
+    let isRunnerTabAlive = false;
+    if (localStored.runnerTabId) {
+      try {
+        const tab = await chrome.tabs.get(localStored.runnerTabId);
+        if (tab && tab.id) {
+          isRunnerTabAlive = true;
+        }
+      } catch (e) {
+        // Tab đã bị người dùng đóng
+        chrome.storage.local.set({ runnerTabId: null, runnerStatus: "Tab Treo đã đóng" });
+      }
+    }
+
+    // Trạng thái chạy thực tế của Extension: Chỉ coi là BẬT nếu Tab Treo thực sự đang sống hoặc được kích hoạt
+    const isActuallyRunning = isRunnerTabAlive;
+
+    // Hợp nhất danh sách nhóm để hiển thị: nếu aggregated rỗng (do đang dừng), lấy từ allAccounts
+    let displayGroups = (aggregated && Array.isArray(aggregated.groups) && aggregated.groups.length > 0)
+      ? aggregated.groups
+      : [];
+    let displayKeywords = (aggregated && Array.isArray(aggregated.allKeywords) && aggregated.allKeywords.length > 0)
+      ? aggregated.allKeywords
+      : [];
+    let displayKeywordMap = (aggregated && aggregated.keywordAccountMap)
+      ? aggregated.keywordAccountMap
+      : {};
+
+    const activeAccountsList = (aggregated && Array.isArray(aggregated.accounts)) ? aggregated.accounts : [];
+
+    // Nếu chưa bật quét hoặc aggregated rỗng, nạp danh sách dự phòng từ allAccounts để người dùng nhìn thấy
+    if (displayGroups.length === 0 && Array.isArray(allAccounts) && allAccounts.length > 0) {
+      allAccounts.forEach(acc => {
+        const accId = acc.account_id;
+        if (Array.isArray(acc.groups)) {
+          acc.groups.forEach(g => {
+            if (g && g.url) {
+              displayGroups.push({
+                url: g.url,
+                canonicalUrl: g.url,
+                name: g.name || "Nhóm Facebook",
+                accounts: [accId],
+                scrollSteps: g.scrollSteps || acc.max_scroll_steps || 8,
+                reloadMinutes: g.reloadMinutes || acc.reload_minutes || 5
+              });
+            }
+          });
+        }
+        if (Array.isArray(acc.keywords)) {
+          acc.keywords.forEach(kw => {
+            const cleanKw = (kw || "").trim();
+            if (cleanKw && !displayKeywords.includes(cleanKw)) {
+              displayKeywords.push(cleanKw);
+            }
+            if (cleanKw) {
+              if (!displayKeywordMap[cleanKw]) displayKeywordMap[cleanKw] = [];
+              if (!displayKeywordMap[cleanKw].includes(accId)) displayKeywordMap[cleanKw].push(accId);
+            }
+          });
+        }
+      });
+    }
 
     dbOverviewData = {
-      enabled: aggregated ? Boolean(aggregated.enabled) : false,
-      accounts: aggregated ? (aggregated.accounts || []) : [],
+      enabled: isActuallyRunning,
+      accounts: activeAccountsList.length > 0 ? activeAccountsList : (allAccounts || []).map(a => a.account_id),
       allAccounts: allAccounts || [],
-      groups: aggregated ? (aggregated.groups || []) : [],
-      allKeywords: aggregated ? (aggregated.allKeywords || []) : [],
-      keywordAccountMap: aggregated ? (aggregated.keywordAccountMap || {}) : {},
-      runnerStatus: localStored.runnerStatus || "Chưa chạy",
-      currentRunningGroup: localStored.currentRunningGroup || null
+      groups: displayGroups,
+      allKeywords: displayKeywords,
+      keywordAccountMap: displayKeywordMap,
+      runnerStatus: isRunnerTabAlive ? (localStored.runnerStatus || "Đang chạy...") : "Hệ thống đang dừng",
+      currentRunningGroup: isRunnerTabAlive ? localStored.currentRunningGroup : null
     };
 
     // Render giao diện tổng quan
@@ -383,7 +446,12 @@ function listenToStorageChanges() {
       dbOverviewData.currentRunningGroup = changes.currentRunningGroup.newValue;
       renderOverviewUI();
     }
-    if (changes.enabled) {
+    if (changes.runnerTabId) {
+      const isAlive = Boolean(changes.runnerTabId.newValue);
+      dbOverviewData.enabled = isAlive;
+      updatePowerUI(isAlive);
+      updateRunnerBarUI();
+    } else if (changes.enabled) {
       dbOverviewData.enabled = Boolean(changes.enabled.newValue);
       updatePowerUI(dbOverviewData.enabled);
       updateRunnerBarUI();

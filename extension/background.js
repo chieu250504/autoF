@@ -318,18 +318,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     sendResponse({ ok: true });
   } else if (message.action === "UPDATE_RUNNER_STATUS") {
-    chrome.storage.local.set({
+    const tabId = sender.tab ? sender.tab.id : null;
+    const storeObj = {
       runnerStatus: message.status,
       currentRunningGroup: message.currentGroup || null
-    });
+    };
+    if (tabId) {
+      storeObj.runnerTabId = tabId;
+    }
+    chrome.storage.local.set(storeObj);
     // Gửi heartbeat trạng thái Tab Treo lên Supabase
     SupabaseClient.sendHeartbeat(message.status, message.currentGroup).catch(() => {});
     sendResponse({ ok: true });
   } else if (message.action === "CHECK_AM_I_RUNNER") {
     chrome.storage.local.get(["runnerTabId"], (stored) => {
-      const isRunnerId = sender.tab && stored.runnerTabId === sender.tab.id;
-      const isRunnerUrl = sender.tab && sender.tab.url && sender.tab.url.includes("fbradar_runner");
-      sendResponse({ isRunner: !!(isRunnerId || isRunnerUrl) });
+      const isRunnerId = Boolean(sender.tab && stored.runnerTabId === sender.tab.id);
+      const isRunnerUrl = Boolean(sender.tab && sender.tab.url && sender.tab.url.includes("fbradar_runner"));
+      const isRunner = isRunnerId || isRunnerUrl;
+      if (isRunner && sender.tab && sender.tab.id && stored.runnerTabId !== sender.tab.id) {
+        chrome.storage.local.set({ runnerTabId: sender.tab.id });
+      }
+      sendResponse({ isRunner });
     });
     return true;
   } else if (message.action === "NAVIGATE_OR_RELOAD_RUNNER") {

@@ -695,6 +695,11 @@ const RadarEngine = {
       window.location.hash = "fbradar_runner";
     }
     this.updateStatusBadge("Đã đặt làm Tab Treo!");
+    chrome.runtime.sendMessage({
+      action: "UPDATE_RUNNER_STATUS",
+      status: "Đã đặt làm Tab Treo",
+      currentGroup: window.location.href
+    }).catch(() => {});
     if (this.shouldRun()) {
       this.start();
     }
